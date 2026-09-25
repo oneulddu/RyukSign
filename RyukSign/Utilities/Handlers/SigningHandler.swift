@@ -73,7 +73,7 @@ final class SigningHandler: NSObject {
 		guard
 			let infoDictionary = NSDictionary(
 				contentsOf: movedAppPath.appendingPathComponent("Info.plist")
-			)!.mutableCopy() as? NSMutableDictionary
+			)?.mutableCopy() as? NSMutableDictionary
 		else {
 			throw SigningFileHandlerError.infoPlistNotFound
 		}
@@ -486,7 +486,7 @@ extension SigningHandler {
 	
 	private func _locateMachosAndChangeToSDK26(for app: URL) async throws {
 		if let url = Bundle(url: app)?.executableURL {
-			LCPatchMachOForSDK26(app.appendingPathComponent(url.relativePath).relativePath)
+			_logMachOPatchFailure(LCPatchMachOForSDK26(url.path), at: url)
 		}
 	}
 	
@@ -502,18 +502,25 @@ extension SigningHandler {
 		for fileURL in machoFiles {
 			switch fileURL.pathExtension {
 			case "dylib":
-				LCPatchMachOFixupARM64eSlice(fileURL.path)
+				_logMachOPatchFailure(LCPatchMachOFixupARM64eSlice(fileURL.path), at: fileURL)
 			case "framework":
 				if
 					let bundle = Bundle(url: fileURL),
 					let execURL = bundle.executableURL
 				{
-					LCPatchMachOFixupARM64eSlice(execURL.path)
+					_logMachOPatchFailure(LCPatchMachOFixupARM64eSlice(execURL.path), at: execURL)
 				}
 			default:
 				continue
 			}
 		}
+	}
+
+	/// The bounded patcher leaves a binary untouched when it fails validation. Signing
+	/// continues as before; the reason is logged instead of being silently dropped.
+	private func _logMachOPatchFailure(_ error: String?, at url: URL) {
+		guard let error else { return }
+		SigningLog.shared.info("Mach-O patch skipped for \(url.lastPathComponent): \(error)")
 	}
 	
 	private func _enumerateFiles(at base: URL, where predicate: (String) -> Bool) -> [URL] {

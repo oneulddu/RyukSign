@@ -13,6 +13,10 @@ python3 tests/test_signing_failure.py
 python3 tests/test_certificate_persistence.py
 python3 tests/test_backup_restore.py
 python3 tests/test_storage_recovery_cleanup.py
+python3 tests/test_afc_upload_streaming.py
+python3 tests/test_malformed_inputs.py
+python3 tests/test_macho_patching.py
+python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/checkouts
 ```
 
 - Extraction: slow successful work, error forwarding, execution QoS, main-queue
@@ -31,6 +35,16 @@ python3 tests/test_storage_recovery_cleanup.py
   reported, and existing or unregistered certificate files preserved.
 - Recovery cleanup: unreadable-store files and certificate recovery directories
   survive cleanup, including removal requests from stale scan results.
+- Pairing upload: the AFC streamer's bytes, chunk sizes, progress, error propagation,
+  and bounded memory on a 768 MB file.
+- Malformed inputs: truncated or invalid DEB/AR headers and unreadable Info.plist
+  files fail without crashing or modifying the input.
+- Mach-O patching: native patchers under ASan/UBSan with synthetic thin/fat binaries,
+  and the Swift callers that log failures and continue signing.
+- Archive extraction: ZIP/TAR/DEB path containment, symlinks, collisions, CRC,
+  progress, ZIP64 variants, and both decoders at several buffer sizes. It compiles
+  the vendored ZIPFoundation and the pinned SWCompression/BitByteData checkouts from
+  an app build, so pass that build's `SourcePackages/checkouts`.
 
 For real Vapor HTTP encoding and streaming over loopback, reuse the dependency
 checkouts from an app build:

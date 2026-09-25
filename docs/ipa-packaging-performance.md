@@ -16,6 +16,27 @@ The later [reliability backports](korsign-reliability-backports.md) add explicit
 temporary-archive ownership and safe export error/collision handling. Ordinary
 export names and ZIP contents remain compatible.
 
+## Pairing upload and the pre-packaging copy
+
+Pairing installs previously read the whole IPA with `Data(contentsOf:)` before
+writing it to AFC, so a 4 GB app needed about 4 GB of memory before the first byte
+was sent, and the write loop used a pointer that escaped `withUnsafeBytes`. The
+IDeviceKitten `InstallationProxy` now streams the file through one reused 64 MB
+buffer (`ChunkedFileStreamer`). AFC still receives full 64 MB writes and the same
+per-chunk upload progress; a failed write or read now also closes the remote file.
+A 768 MB fixture streamed with 64 MB peak memory growth.
+
+IDeviceKitten is a submodule of claration/IDeviceKit. The change is committed on
+the local submodule branch `ryuksign/stream-afc-upload` and the parent repository
+points at that commit. Push it to a reachable IDeviceKit fork (and point
+`.gitmodules` there) before pushing this repository, or CI checkouts with
+`submodules: true` cannot fetch it.
+
+`ArchiveHandler.move()` copies the signed `.app` into `Payload/`. On APFS within one
+volume, `FileManager.copyItem` clones: copying a 994 MB, 3,200-file bundle took
+0.25–0.58 s and consumed about 1 MB. That is small next to compression, so the copy
+was kept.
+
 ## References
 
 - [Feather 2.9.0](https://github.com/claration/Feather/blob/v2.9.0/Feather/Utilities/Handlers/ArchiveHandler.swift)

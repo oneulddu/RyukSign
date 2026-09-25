@@ -305,7 +305,7 @@ final class BackupManager {
 				let packURL = work.appendingPathComponent("pack.zip")
 				try plaintext.write(to: packURL)
 				try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
-				try Zip.unzipFile(packURL, destination: extractDir, overwrite: true, password: nil)
+				try ArchiveExtraction.unzip(packURL, to: extractDir)
 			}.value
 
 			guard let root = _findRoot(in: extractDir) else { throw BackupCrypto.Failure.badFormat }

@@ -344,7 +344,7 @@
 			packageReferences = (
 				3371F5152DA91FDC00281AC6 /* XCLocalSwiftPackageReference "Zsign" */,
 				3371F6F52DA9EBA500281AC6 /* XCRemoteSwiftPackageReference "Zip" */,
-				FADE000100000000000F0003 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+				FADE000100000000000F0003 /* XCLocalSwiftPackageReference "ZIPFoundation" */,
 				33CF13372DB5ACFB0021D4C5 /* XCRemoteSwiftPackageReference "SWCompression" */,
 				3305BBAA2DB8944200660D45 /* XCRemoteSwiftPackageReference "vapor" */,
 				330F68FF2DC03DF400D8C35D /* XCLocalSwiftPackageReference "NimbleKit" */,
@@ -1303,6 +1303,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = IDeviceKitten;
 		};
+		FADE000100000000000F0003 /* XCLocalSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ZIPFoundation;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1344,14 +1348,6 @@
 			requirement = {
 				kind = upToNextMinorVersion;
 				minimumVersion = 4.8.6;
-			};
-		};
-		FADE000100000000000F0003 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/weichsel/ZIPFoundation";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.19;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1424,7 +1420,7 @@
 		};
 		FADE000100000000000F0002 /* ZIPFoundation */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = FADE000100000000000F0003 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			package = FADE000100000000000F0003 /* XCLocalSwiftPackageReference "ZIPFoundation" */;
 			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */

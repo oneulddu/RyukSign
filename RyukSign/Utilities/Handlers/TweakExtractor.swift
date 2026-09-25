@@ -8,7 +8,6 @@
 //
 
 import Foundation
-import Zip
 import OSLog
 
 /// A single injectable artifact discovered inside an app or archive.
@@ -89,10 +88,6 @@ enum TweakExtractor {
 		do {
 			try _fm.createDirectoryIfNeeded(at: workDir)
 
-			let ext = ipaURL.pathExtension.lowercased()
-			if ext == "ipa" { Zip.addCustomFileExtension("ipa") }
-			if ext == "tipa" { Zip.addCustomFileExtension("tipa") }
-
 			// Copy locally first so we hold a stable, accessible source.
 			let localCopy = workDir.appendingPathComponent(ipaURL.lastPathComponent)
 			try _fm.copyItem(at: ipaURL, to: localCopy)
@@ -122,7 +117,13 @@ enum TweakExtractor {
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
 			DispatchQueue.global(qos: .utility).async {
 				do {
-					try Zip.unzipFile(archive, destination: destination, overwrite: true, password: nil, progress: progress)
+					try ArchiveExtraction.unzip(
+						archive,
+						to: destination,
+						bufferSize: AppFileHandler.extractionBufferSize,
+						useZlib: true,
+						progress: progress
+					)
 					continuation.resume()
 				} catch {
 					continuation.resume(throwing: error)

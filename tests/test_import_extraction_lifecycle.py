@@ -1,4 +1,4 @@
-"""Compile production extraction with slow/failing Zip fixtures (macOS, swiftc).
+"""Compile production extraction with slow/failing extractor fixtures (macOS, swiftc).
 
 Adapted from KorSign's extraction lifecycle test. No app build, real app data,
 archive dependency, or network is needed; data and preferences stay temporary.
@@ -59,22 +59,13 @@ final class Download: @unchecked Sendable {
   }
  }
 }
-enum Zip {
- static let lock = NSLock()
- static var extensions: Set<String> = []
- static func addCustomFileExtension(_ ext: String) {
-  lock.lock(); defer { lock.unlock() }
-  extensions.insert(ext)
- }
- static func unzipFile(_ source: URL, destination: URL, overwrite: Bool,
-                       password: String?, progress: ((Double) -> Void)?) throws {
+enum ArchiveExtraction {
+ static func unzip(_ source: URL, to destination: URL, bufferSize: Int, useZlib: Bool,
+                   progress: ((Double) -> Void)?) throws {
   checkExtractionQueue()
   precondition(!Thread.isMainThread)
-  precondition(overwrite && password == nil)
-  lock.lock()
-  let registered = extensions.contains(source.pathExtension)
-  lock.unlock()
-  precondition(source.pathExtension == "zip" || registered)
+  // The import path keeps KorSign's measured fast settings for every extension.
+  precondition(bufferSize == 256 * 1024 && useZlib)
   let contents = try String(contentsOf: source, encoding: .utf8)
   precondition(contents == "archive fixture")
   // This exceeds the accelerated old timeout and leaves the main queue responsive.
@@ -96,6 +87,7 @@ enum Zip {
 final class Handler: @unchecked Sendable {
  let _ipa: URL
  let _uniqueWorkDir: URL
+ static let extractionBufferSize = 256 * 1024
  let _uuid = "fixture-id"
  let _fileName: String
  let _download: Download?

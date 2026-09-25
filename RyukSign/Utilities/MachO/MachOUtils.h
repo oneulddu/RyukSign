@@ -9,5 +9,7 @@
 @import Foundation;
 @import MachO;
 
-NSString *LCPatchMachOFixupARM64eSlice(const char *path);
-NSString *LCPatchMachOForSDK26(const char *path);
+// Returns nil on success (including a valid binary needing no patch).
+NSString * _Nullable LCPatchMachOFixupARM64eSlice(const char * _Nonnull path);
+// Returns nil on success (including a valid binary needing no patch).
+NSString * _Nullable LCPatchMachOForSDK26(const char * _Nonnull path);

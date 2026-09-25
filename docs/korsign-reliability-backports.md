@@ -8,8 +8,25 @@ RyukSign's identity, settings, compression dependencies, and existing Zip output
 
 - Wait for actual extraction completion instead of racing an uncancellable ZIP
   operation against a five-minute timeout. Run it at user-initiated QoS and gate
-  progress before dispatching UI work. The pinned Zip extractor is retained;
-  KorSign's vendored decoder and import controls are not required for this fix.
+  progress before dispatching UI work.
+- Extract imports with KorSign's `ArchiveExtraction` and vendored ZIPFoundation
+  (256 KB buffers, opt-in system zlib) instead of Zip's 4 KB minizip loop. On a
+  756 MB IPA (994 MB unpacked, 3,200 files) CPU time fell from about 2.4 s to 1.6 s
+  and wall time from about 2.5 s to 1.7 s on a Mac (three runs each). File contents
+  and permissions match Zip's output. Every entry path is validated, destinations are
+  resolved against symlinks before writing, and each CRC is checked. Symlink entries are
+  now restored as links (Zip wrote a text file holding the target); links leaving the
+  destination are rejected. Tweak extraction from IPAs and backup restore use the same
+  extractor. Import pause/resume controls are not included.
+- Parse `.deb` AR members with bounds, numeric, and padding checks, and validate tar
+  entry paths before writing. Truncated or crafted packages now fail with an error
+  instead of crashing or writing outside the extraction directory.
+- Use KorSign's bounded Mach-O patchers for the Liquid Glass SDK patch and the ARM64e
+  slice fix. Every slice and load command is validated before any byte is written.
+  Unlike KorSign, a failed patch still lets signing continue as before, and the reason
+  is logged.
+- Throw `infoPlistNotFound` for a missing or unreadable Info.plist during signing
+  instead of force-unwrapping it.
 - Wait for the actual library-save result. A timer cannot cancel Core Data, so
   premature import cleanup must not remove a payload before a late successful save.
 - Give temporary installation archives an explicit owner. Pairing calls, the OTA
@@ -38,7 +55,7 @@ RyukSign's identity, settings, compression dependencies, and existing Zip output
   recheck protections before deleting paths from an earlier scan.
 
 The broader fork's branding, UI preferences, updater/release changes, installation
-verification state machine, and custom ZIPFoundation decoder are not included.
+verification state machine, and import pause/resume controls are not included.
 
 ## Verification and limits
 
