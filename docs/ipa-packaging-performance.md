@@ -26,11 +26,13 @@ buffer (`ChunkedFileStreamer`). AFC still receives full 64 MB writes and the sam
 per-chunk upload progress; a failed write or read now also closes the remote file.
 A 768 MB fixture streamed with 64 MB peak memory growth.
 
-IDeviceKitten is a submodule of claration/IDeviceKit. The change is committed on
-the local submodule branch `ryuksign/stream-afc-upload` and the parent repository
-points at that commit. Push it to a reachable IDeviceKit fork (and point
-`.gitmodules` there) before pushing this repository, or CI checkouts with
-`submodules: true` cannot fetch it.
+IDeviceKitten now points at the oneulddu/idevicekit fork of claration/IDeviceKit.
+The change lives on its `ryuksign/stream-afc-upload` branch, and `.gitmodules`
+uses that fork so CI checkouts with `submodules: true` can fetch the commit.
+
+The release workflow accepts an optional numeric `revision` input. With it, a
+rebuild of an unchanged app version is tagged `vX.Y.Z-rN` instead of reusing
+the existing `vX.Y.Z` tag.
 
 `ArchiveHandler.move()` copies the signed `.app` into `Payload/`. On APFS within one
 volume, `FileManager.copyItem` clones: copying a 994 MB, 3,200-file bundle took

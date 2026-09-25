@@ -2,6 +2,12 @@ name: Create New Release
 
 on:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: Optional revision number for rebuilding the same app version (creates vX.Y.Z-rN)
+        type: string
+        default: ''
+        required: false
 
 permissions:
   contents: write
@@ -28,8 +34,16 @@ jobs:
 
       - name: Get Version
         id: get_version
+        env:
+          REVISION: ${{ inputs.revision }}
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Payload/*.app/Info.plist)
+          if [ -n "$REVISION" ]; then
+            case "$REVISION" in
+              *[!0-9]*) echo "revision must be a number" >&2; exit 1 ;;
+            esac
+            VERSION="${VERSION}-r${REVISION}"
+          fi
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Create Release
