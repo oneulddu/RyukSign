@@ -27,6 +27,12 @@ RyukSign's identity, settings, compression dependencies, and existing Zip output
   is logged.
 - Throw `infoPlistNotFound` for a missing or unreadable Info.plist during signing
   instead of force-unwrapping it.
+- Stage each finished download in its own directory. Two downloads with the same
+  server filename previously shared `downloadStaging/<name>`, and the second deleted
+  the first before its import had copied it. Staged files are removed when the import
+  finishes or the download is cancelled instead of lingering up to a day, which matters
+  for multi-GB IPAs.
+- Remove the per-signing tweak staging directory after injection finishes.
 - Wait for the actual library-save result. A timer cannot cancel Core Data, so
   premature import cleanup must not remove a payload before a late successful save.
 - Give temporary installation archives an explicit owner. Pairing calls, the OTA
@@ -56,6 +62,10 @@ RyukSign's identity, settings, compression dependencies, and existing Zip output
 
 The broader fork's branding, UI preferences, updater/release changes, installation
 verification state machine, and import pause/resume controls are not included.
+RyukSign's own post-install cleanup (stage, then flush after the install UI closes)
+is kept. KorSign's source-loading generations, branded log export, and temporary
+export ownership were reviewed and left out: they depend on excluded features or
+showed no user-visible defect in RyukSign.
 
 ## Verification and limits
 

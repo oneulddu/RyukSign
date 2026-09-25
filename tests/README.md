@@ -16,6 +16,7 @@ python3 tests/test_storage_recovery_cleanup.py
 python3 tests/test_afc_upload_streaming.py
 python3 tests/test_malformed_inputs.py
 python3 tests/test_macho_patching.py
+python3 tests/test_download_staging.py
 python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/checkouts
 ```
 
@@ -41,6 +42,8 @@ python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/che
   files fail without crashing or modifying the input.
 - Mach-O patching: native patchers under ASan/UBSan with synthetic thin/fat binaries,
   and the Swift callers that log failures and continue signing.
+- Download staging: same-name downloads keep separate files, cleanup removes only the
+  owner's directory, and path-like server filenames stay contained.
 - Archive extraction: ZIP/TAR/DEB path containment, symlinks, collisions, CRC,
   progress, ZIP64 variants, and both decoders at several buffer sizes. It compiles
   the vendored ZIPFoundation and the pinned SWCompression/BitByteData checkouts from

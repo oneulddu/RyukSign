@@ -657,6 +657,7 @@ class DownloadManager: NSObject, ObservableObject {
 	func cancelDownload(_ download: Download) {
 		download.task?.cancel()
 		download.isActive = false
+		download.removeStagedFiles()
 
 		let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
 		let resumeDataPath = documentsPath.appendingPathComponent("ResumeData_\(download.id).data")
@@ -810,6 +811,7 @@ class DownloadManager: NSObject, ObservableObject {
 	}
 
 	private func finishImport(of download: Download, succeeded: Bool) {
+		download.removeStagedFiles()
 		download.isActive = false
 		endImport(for: download)
 

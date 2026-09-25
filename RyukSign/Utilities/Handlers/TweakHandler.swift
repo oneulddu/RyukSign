@@ -120,6 +120,8 @@ class TweakHandler {
 		try await _checkEllekit()
 
 		let baseTmpDir = _fileManager.uniqueTemporaryDirectory("FeatherTweak")
+		// All consumers below finish before returning; only files moved into the app survive.
+		defer { try? _fileManager.removeItem(at: baseTmpDir) }
 		try _fileManager.createDirectoryIfNeeded(at: baseTmpDir)
 
 		if let filePickerFix {
