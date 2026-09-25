@@ -41,6 +41,9 @@ class Download: Identifiable, @unchecked Sendable {
 	var task: URLSessionDownloadTask?
 	var resumeData: Data?
 	var pendingFileURL: URL?
+	/// Owned by this Download instance, so same-named downloads never replace each other.
+	let stagingDirectory = FileManager.default.downloadStaging
+		.appendingPathComponent(UUID().uuidString, isDirectory: true)
 	
 	let id: String
 	let url: URL
@@ -64,6 +67,22 @@ class Download: Identifiable, @unchecked Sendable {
 		self.onlyArchiving = onlyArchiving
 		self.fileName = appName ?? url.lastPathComponent
 		self.appDescription = appDescription
+	}
+
+	/// Moves a finished URLSession file into this download's own staging directory (from KorSign).
+	func stageFile(at location: URL, suggestedFilename: String?) throws -> URL {
+		let fm = FileManager.default
+		let name = ((suggestedFilename ?? fileName).replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
+		let safeName = name.isEmpty || name == "." || name == ".." ? "download.ipa" : name
+		let destination = stagingDirectory.appendingPathComponent(safeName)
+		try fm.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+		try fm.moveItem(at: location, to: destination)
+		return destination
+	}
+
+	/// Imports copy the staged file first, so it is no longer needed once they end.
+	func removeStagedFiles() {
+		try? FileManager.default.removeItem(at: stagingDirectory)
 	}
 
 	func beginImport() {

@@ -120,7 +120,9 @@ final class StorageManager: ObservableObject {
 	}
 
 	func delete(_ items: [StorageEntry]) {
-		let deletable = items.filter { !$0.isProtected }
+		// Recheck current protection: a displayed row may predate a load failure.
+		let library = _librarySnapshot()
+		let deletable = items.filter { !$0.isProtected && !library.protects($0.url) }
 		guard !deletable.isEmpty else { return }
 
 		let uuids = Set(deletable.compactMap(\.appUuid))
@@ -138,6 +140,8 @@ final class StorageManager: ObservableObject {
 	}
 
 	func clear(_ categories: [StorageCategory]) async {
+		// Snapshot at invocation, not from the displayed report. Readiness can only
+		// advance from unavailable to ready, so this remains conservative during cleanup.
 		let library = _librarySnapshot()
 		await Task.detached(priority: .utility) {
 			for category in categories { StorageScanner.clear(category, library) }
@@ -150,7 +154,7 @@ final class StorageManager: ObservableObject {
 	private func _librarySnapshot() -> LibrarySnapshot {
 		let storage = Storage.shared
 
-		let apps = storage.getAllApps().reduce(into: [String: AppDescriptor]()) { result, app in
+		let apps = (storage.isReady ? storage.getAllApps() : []).reduce(into: [String: AppDescriptor]()) { result, app in
 			guard let uuid = app.uuid else { return }
 			result[uuid] = AppDescriptor(
 				name: app.name ?? .localized("Unknown"),
@@ -160,10 +164,19 @@ final class StorageManager: ObservableObject {
 			)
 		}
 
-		let certificates = (try? storage.context.fetch(CertificatePair.fetchRequest()))?
-			.compactMap(\.uuid) ?? []
+		let certificates = storage.isReady
+			? (try? storage.context.fetch(CertificatePair.fetchRequest()))?.compactMap(\.uuid) ?? []
+			: []
 
-		var protected: Set<String> = []
+		// Discover existing recovery roots once so their containing directories are protected too.
+		let fm = FileManager.default
+		let recovery = ((try? fm.contentsOfDirectory(at: fm.certificates, includingPropertiesForKeys: nil)) ?? [])
+			.filter { $0.lastPathComponent.hasPrefix(".certificate-update-") }
+		var protected = Set(recovery.map { $0.path })
+		if !storage.isReady {
+			// Empty query results do not establish ownership while the store is unavailable.
+			protected.formUnion([fm.signed, fm.unsigned, fm.certificates].map { $0.standardizedFileURL.path })
+		}
 		if let store = storage.container.persistentStoreDescriptions.first?.url?.standardizedFileURL {
 			let base = store.deletingPathExtension()
 			for suffix in ["sqlite", "sqlite-wal", "sqlite-shm"] {
@@ -224,14 +237,31 @@ struct LibrarySnapshot {
 	let apps: [String: AppDescriptor]
 	let certificates: Set<String>
 	let protected: Set<String>
+	private let certificateRoot: String
+
+	init(apps: [String: AppDescriptor], certificates: Set<String>, protected: Set<String>) {
+		self.apps = apps
+		self.certificates = certificates
+		self.protected = Set(protected.map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path })
+		self.certificateRoot = FileManager.default.certificates.standardizedFileURL.resolvingSymlinksInPath().path
+	}
 
 	func owns(_ uuid: String, signed: Bool) -> Bool {
 		apps[uuid]?.isSigned == signed
 	}
 
 	func protects(_ url: URL) -> Bool {
-		let path = url.standardizedFileURL.path
-		return protected.contains { $0 == path || $0.hasPrefix(path + "/") }
+		let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+		// Recognize late-created recovery roots and descendants without enumerating directories.
+		let prefix = certificateRoot + "/"
+		if path.hasPrefix(prefix),
+		   let component = path.dropFirst(prefix.count).split(separator: "/", maxSplits: 1).first,
+		   component.hasPrefix(".certificate-update-") {
+			return true
+		}
+		return protected.contains { protectedPath in
+			protectedPath == path || protectedPath.hasPrefix(path + "/") || path.hasPrefix(protectedPath + "/")
+		}
 	}
 }
 
@@ -247,9 +277,9 @@ private enum StorageScanner {
 	}
 
 	static func scan(_ library: LibrarySnapshot) -> StorageReport {
-		let signed = partition(fm.signed) { library.owns($0, signed: true) }
-		let imported = partition(fm.unsigned) { library.owns($0, signed: false) }
-		let certificates = partition(fm.certificates) { library.certificates.contains($0) }
+		let signed = partition(fm.signed) { library.protects(fm.signed.appendingPathComponent($0)) || library.owns($0, signed: true) }
+		let imported = partition(fm.unsigned) { library.protects(fm.unsigned.appendingPathComponent($0)) || library.owns($0, signed: false) }
+		let certificates = partition(fm.certificates) { library.protects(fm.certificates.appendingPathComponent($0)) || library.certificates.contains($0) }
 
 		let inbox = contents(of: fm.webManagerInbox)
 		let leftoverSize = signed.orphanSize + imported.orphanSize + certificates.orphanSize
@@ -387,9 +417,9 @@ private enum StorageScanner {
 	}
 
 	private static func leftovers(_ library: LibrarySnapshot) -> [URL] {
-		partition(fm.signed) { library.owns($0, signed: true) }.orphans
-		+ partition(fm.unsigned) { library.owns($0, signed: false) }.orphans
-		+ partition(fm.certificates) { library.certificates.contains($0) }.orphans
+		partition(fm.signed) { library.protects(fm.signed.appendingPathComponent($0)) || library.owns($0, signed: true) }.orphans
+		+ partition(fm.unsigned) { library.protects(fm.unsigned.appendingPathComponent($0)) || library.owns($0, signed: false) }.orphans
+		+ partition(fm.certificates) { library.protects(fm.certificates.appendingPathComponent($0)) || library.certificates.contains($0) }.orphans
 		+ contents(of: fm.webManagerInbox)
 	}
 

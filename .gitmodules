@@ -3,4 +3,4 @@
 	url = https://github.com/claration/Zsign-Package.git
 [submodule "IDeviceKitten"]
 	path = IDeviceKitten
-	url = https://github.com/claration/IDeviceKit.git
+	url = https://github.com/oneulddu/idevicekit.git

@@ -10,8 +10,6 @@ import ZsignSwift
 import UIKit
 
 final class ZsignHandler {
-	var hadError: Error?
-	
 	private var _appUrl: URL
 	private var _options: Options
 	private var _certificate: CertificatePair?
@@ -49,31 +47,43 @@ final class ZsignHandler {
 		StdoutCapture.shared.start { SigningLog.shared.info($0) }
 		defer { StdoutCapture.shared.stop() }
 
-		let _ = Zsign.sign(
+		let credentials = await MainActor.run {
+			(Storage.shared.getFile(.provision, from: cert)?.path ?? "",
+			 Storage.shared.getFile(.certificate, from: cert)?.path ?? "", cert.password ?? "")
+		}
+		var callbackError: Error?
+		let succeeded = Zsign.sign(
 			appPath: _appUrl.relativePath,
-			provisionPath: Storage.shared.getFile(.provision, from: cert)?.path ?? "",
-			p12Path: Storage.shared.getFile(.certificate, from: cert)?.path ?? "",
-			p12Password: cert.password ?? "",
+			provisionPath: credentials.0,
+			p12Path: credentials.1,
+			p12Password: credentials.2,
 			entitlementsPath: _options.appEntitlementsFile?.path ?? "",
 			removeProvision: !_options.removeProvisioning,
-			completion: { _, error in
-				self.hadError = error
+			completion: { success, error in
+				if let error { callbackError = error }
+				else if !success { callbackError = SigningFileHandlerError.signFailed }
 			}
 		)
+		if let callbackError { throw callbackError }
+		guard succeeded else { throw SigningFileHandlerError.signFailed }
 	}
 	
 	func adhocSign() async throws {
 		StdoutCapture.shared.start { SigningLog.shared.info($0) }
 		defer { StdoutCapture.shared.stop() }
 
-		let _ = Zsign.sign(
+		var callbackError: Error?
+		let succeeded = Zsign.sign(
 			appPath: _appUrl.relativePath,
 			entitlementsPath: _options.appEntitlementsFile?.path ?? "",
 			adhoc: true,
 			removeProvision: !_options.removeProvisioning,
-			completion: { _, error in
-				self.hadError = error
+			completion: { success, error in
+				if let error { callbackError = error }
+				else if !success { callbackError = SigningFileHandlerError.signFailed }
 			}
 		)
+		if let callbackError { throw callbackError }
+		guard succeeded else { throw SigningFileHandlerError.signFailed }
 	}
 }

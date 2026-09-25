@@ -23,11 +23,13 @@ func extractFile(at fileURL: inout URL) throws {
 	// A .tar (already decompressed) → unpack into a directory.
 	if fileURL.pathExtension.lowercased() == "tar" || _looksLikeTar(data) {
 		let extractionDirectory = fileURL.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
-		try fileManager.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
-
 		let tarContainer = try TarContainer.open(container: data)
+		for entry in tarContainer { try ArchiveExtraction.validatePath(entry.info.name) }
+		try fileManager.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
+		var completed = false
+		defer { if !completed { try? fileManager.removeItem(at: extractionDirectory) } }
 		for entry in tarContainer {
-			let entryPath = extractionDirectory.appendingPathComponent(entry.info.name)
+			let entryPath = try ArchiveExtraction.destination(for: entry.info.name, in: extractionDirectory)
 			if entry.info.type == .directory {
 				try fileManager.createDirectory(at: entryPath, withIntermediateDirectories: true)
 			} else if entry.info.type == .regular, let entryData = entry.data {
@@ -35,6 +37,7 @@ func extractFile(at fileURL: inout URL) throws {
 				try entryData.write(to: entryPath)
 			}
 		}
+		completed = true
 		fileURL = extractionDirectory
 		return
 	}

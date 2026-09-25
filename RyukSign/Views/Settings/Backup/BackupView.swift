@@ -18,6 +18,7 @@ struct BackupView: View {
 	@State private var _showExportPicker = false
 	@State private var _pendingExport: (components: BackupComponents, password: String)?
 	@State private var _pendingSummary: BackupRestoreSummary?
+	@State private var _pendingRestoreError: String?
 
 	// MARK: Body
 	var body: some View {
@@ -80,7 +81,13 @@ struct BackupView: View {
 				),
 				footer: .localized("Nothing is deleted. Anything already here is skipped."),
 				onConfirm: { components, _ in
-					_pendingSummary = BackupManager.shared.restore(archive, components: components)
+					_pendingSummary = nil
+					_pendingRestoreError = nil
+					do {
+						_pendingSummary = try BackupManager.shared.restore(archive, components: components)
+					} catch {
+						_pendingRestoreError = error.localizedDescription
+					}
 				}
 			)
 		}
@@ -158,6 +165,11 @@ struct BackupView: View {
 	}
 
 	private func _presentRestoreComplete() {
+		if let error = _pendingRestoreError {
+			_pendingRestoreError = nil
+			Toast.error(error)
+			return
+		}
 		guard let summary = _pendingSummary else { return }
 		_pendingSummary = nil
 

@@ -385,12 +385,13 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 		let handler = ArchiveHandler(app: signed, viewModel: viewModel)
 		try await handler.move()
 		let package = try await handler.archive()
+		defer { withExtendedLifetime(package) {} }
 
 		scratch.forEach { Storage.shared.deleteApp(for: $0) }
 		scratch.removeAll()
 
 		let proxy = InstallationProxy(viewModel: viewModel)
-		try await proxy.install(at: package, suspend: true)
+		try await proxy.install(at: package.url, suspend: true)
 	}
 
 	// MARK: - Server signing

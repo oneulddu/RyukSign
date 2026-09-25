@@ -24,16 +24,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			}
 		}
 		
-		let customTempDir = FileManager.default.downloadStaging
-		
 		do {
-			try FileManager.default.createDirectoryIfNeeded(at: customTempDir)
-
-			let suggestedFileName = downloadTask.response?.suggestedFilename ?? download.fileName
-			let destinationURL = customTempDir.appendingPathComponent(suggestedFileName)
-
-			try FileManager.default.removeFileIfNeeded(at: destinationURL)
-			try FileManager.default.moveItem(at: location, to: destinationURL)
+			let destinationURL = try download.stageFile(
+				at: location,
+				suggestedFilename: downloadTask.response?.suggestedFilename
+			)
 
 			// ID-keyed so duplicates count correctly (drives the X/Y counter).
 			finishedDownloadingIDs.insert(download.id)

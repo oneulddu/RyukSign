@@ -44,7 +44,7 @@ final class SigningHandler: NSObject {
 	}
 	
 	func copy() async throws {
-		guard let appUrl = Storage.shared.getAppDirectory(for: _app) else {
+		guard let appUrl = await MainActor.run(body: { Storage.shared.getAppDirectory(for: _app) }) else {
 			throw SigningFileHandlerError.appNotFound
 		}
 
@@ -73,7 +73,7 @@ final class SigningHandler: NSObject {
 		guard
 			let infoDictionary = NSDictionary(
 				contentsOf: movedAppPath.appendingPathComponent("Info.plist")
-			)!.mutableCopy() as? NSMutableDictionary
+			)?.mutableCopy() as? NSMutableDictionary
 		else {
 			throw SigningFileHandlerError.infoPlistNotFound
 		}
@@ -142,7 +142,7 @@ final class SigningHandler: NSObject {
 			_options.signingOption == .default,
 			let cert = appCertificate
 		{
-			let certName = cert.nickname ?? Storage.shared.getProvisionFileDecoded(for: cert)?.Name ?? .localized("certificate")
+			let certName = await MainActor.run { cert.nickname ?? Storage.shared.getProvisionFileDecoded(for: cert)?.Name ?? .localized("certificate") }
 			SigningLog.shared.info(.localized("Signing with %@", arguments: certName))
 			try await handler.sign()
 		} else if _options.signingOption == .onlyModify {
@@ -154,9 +154,6 @@ final class SigningHandler: NSObject {
 		try await self.move()
 		try await self.addToDatabase()
 		
-		if let error = handler.hadError {
-			throw error
-		}
 	}
 	
 	func move() async throws {
@@ -180,10 +177,10 @@ final class SigningHandler: NSObject {
 		let app = try await _directory()
 
 		guard let appUrl = _fileManager.getPath(in: app, for: "app") else {
-			return
+			throw SigningFileHandlerError.appNotFound
 		}
 
-		signedApp = await withCheckedContinuation { (continuation: CheckedContinuation<Signed, Never>) in
+		signedApp = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Signed, Error>) in
 			let bundle = Bundle(url: appUrl)
 
 			Storage.shared.addSigned(
@@ -196,8 +193,10 @@ final class SigningHandler: NSObject {
 				appIcon: bundle?.iconFileName,
 				appDescription: _appDescription
 			) { signed in
-				Logger.signing.info("[\(self._uuid)] Added to database (original ID: \(self._originalBundleIdentifier ?? "nil"), current ID: \(bundle?.bundleIdentifier ?? "nil"))")
-				continuation.resume(returning: signed)
+				if case .success = signed {
+					Logger.signing.info("[\(self._uuid)] Added to database")
+				}
+				continuation.resume(with: signed)
 			}
 		}
 
@@ -219,6 +218,7 @@ final class SigningHandler: NSObject {
 }
 
 extension SigningHandler {
+	@MainActor
 	private func _isolateKeychainGroups(for app: URL) async throws {
 		guard
 			let bundleId = _options.appIdentifier ?? _app.identifier, !bundleId.isEmpty,
@@ -486,7 +486,7 @@ extension SigningHandler {
 	
 	private func _locateMachosAndChangeToSDK26(for app: URL) async throws {
 		if let url = Bundle(url: app)?.executableURL {
-			LCPatchMachOForSDK26(app.appendingPathComponent(url.relativePath).relativePath)
+			_logMachOPatchFailure(LCPatchMachOForSDK26(url.path), at: url)
 		}
 	}
 	
@@ -502,18 +502,25 @@ extension SigningHandler {
 		for fileURL in machoFiles {
 			switch fileURL.pathExtension {
 			case "dylib":
-				LCPatchMachOFixupARM64eSlice(fileURL.path)
+				_logMachOPatchFailure(LCPatchMachOFixupARM64eSlice(fileURL.path), at: fileURL)
 			case "framework":
 				if
 					let bundle = Bundle(url: fileURL),
 					let execURL = bundle.executableURL
 				{
-					LCPatchMachOFixupARM64eSlice(execURL.path)
+					_logMachOPatchFailure(LCPatchMachOFixupARM64eSlice(execURL.path), at: execURL)
 				}
 			default:
 				continue
 			}
 		}
+	}
+
+	/// The bounded patcher leaves a binary untouched when it fails validation. Signing
+	/// continues as before; the reason is logged instead of being silently dropped.
+	private func _logMachOPatchFailure(_ error: String?, at url: URL) {
+		guard let error else { return }
+		SigningLog.shared.info("Mach-O patch skipped for \(url.lastPathComponent): \(error)")
 	}
 	
 	private func _enumerateFiles(at base: URL, where predicate: (String) -> Bool) -> [URL] {

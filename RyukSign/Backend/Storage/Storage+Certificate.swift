@@ -20,28 +20,35 @@ extension Storage {
 		isDefault: Bool = false,
 		completion: @escaping (Error?) -> Void
 	) {
-		let generator = UIImpactFeedbackGenerator(style: .light)
-		
-		let new = CertificatePair(context: context)
-		new.uuid = uuid
-		new.date = Date()
-		new.password = password
-		new.ppQCheck = ppq
-		new.expiration = expiration
-		new.nickname = nickname
-		new.isDefault = isDefault
-		Storage.shared.revokagedCertificate(for: new)
-		saveContext()
-		generator.impactOccurred()
-		completion(nil)
-	}
-	
-	func deleteCertificate(for cert: CertificatePair) {
-		if let url = getUuidDirectory(for: cert) {
-			try? FileManager.default.removeItem(at: url)
+		context.performAndWait {
+			let new = CertificatePair(context: context)
+			new.uuid = uuid
+			new.date = Date()
+			new.password = password
+			new.ppQCheck = ppq
+			new.expiration = expiration
+			new.nickname = nickname
+			new.isDefault = isDefault
+
+			switch saveContext() {
+			case .success:
+				revokagedCertificate(for: new)
+				UIImpactFeedbackGenerator(style: .light).impactOccurred()
+				completion(nil)
+			case .failure(let error):
+				completion(error)
+			}
 		}
-		context.delete(cert)
-		saveContext()
+	}
+
+	func deleteCertificate(for cert: CertificatePair) {
+		context.performAndWait {
+			guard isReady else { return }
+			let url = getUuidDirectory(for: cert)
+			context.delete(cert)
+			guard case .success = saveContext() else { return }
+			if let url { try? FileManager.default.removeItem(at: url) }
+		}
 	}
 	
 	func getCertificate(for index: Int) -> CertificatePair? {
@@ -62,8 +69,8 @@ extension Storage {
 		guard !cert.revoked else { return }
 		
 		Zsign.checkRevokage(
-			provisionPath: Storage.shared.getFile(.provision, from: cert)?.path ?? "",
-			p12Path: Storage.shared.getFile(.certificate, from: cert)?.path ?? "",
+			provisionPath: self.getFile(.provision, from: cert)?.path ?? "",
+			p12Path: self.getFile(.certificate, from: cert)?.path ?? "",
 			p12Password: cert.password ?? ""
 		) { (status, _, _) in
 			if status == 1 {

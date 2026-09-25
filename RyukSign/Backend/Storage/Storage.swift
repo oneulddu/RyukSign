@@ -13,6 +13,9 @@ import OSLog
 final class Storage: ObservableObject {
 	static let shared = Storage()
 	let container: NSPersistentContainer
+	@Published private(set) var isReady = false
+	@Published private(set) var loadError: String?
+	@Published var saveError: String?
 
 	private let _name: String = "Feather"
 
@@ -24,42 +27,48 @@ final class Storage: ObservableObject {
 				URL(fileURLWithPath: "/dev/null")
 		}
 
-		_loadPersistentStoreAggressively()
+		container.persistentStoreDescriptions.forEach { $0.shouldAddStoreAsynchronously = false }
 		container.viewContext.automaticallyMergesChangesFromParent = true
 		container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-		_migrateSortIndexIfNeeded()
+		retryLoad()
 	}
 	
 	var context: NSManagedObjectContext {
 		container.viewContext
 	}
 	
-	func saveContext() {
-		// Save sync if already on main to avoid a deadlock
-		if Thread.isMainThread {
-			if context.hasChanges {
-				do {
-					try context.save()
-				} catch {
-					Logger.misc.error("CoreData save failed: \(error.localizedDescription)")
-				}
+	/// Completes on the context queue before callers may retire source files.
+	@discardableResult
+	func saveContext() -> Result<Void, Error> {
+		context.performAndWait {
+			do {
+				try requireReady()
+				if context.hasChanges { try context.save() }
+				saveError = nil
+				return .success(())
+			} catch {
+				context.rollback()
+				saveError = error.localizedDescription
+				Logger.misc.error("CoreData save failed: \(error.localizedDescription)")
+				return .failure(error)
 			}
-		} else {
-			DispatchQueue.main.async {
-				if self.context.hasChanges {
-					do {
-						try self.context.save()
-					} catch {
-						Logger.misc.error("CoreData save failed: \(error.localizedDescription)")
-					}
-				}
-			}
+		}
+	}
+
+	func requireReady() throws {
+		guard isReady else {
+			throw NSError(domain: "RyukSign.Storage", code: 1, userInfo: [
+				NSLocalizedDescriptionKey: "The library could not be opened. Your files have been kept. Please retry opening the library."
+			])
 		}
 	}
 	
 	func clearContext<T: NSManagedObject>(request: NSFetchRequest<T>) {
-		let deleteRequest = NSBatchDeleteRequest(fetchRequest: (request as? NSFetchRequest<NSFetchRequestResult>)!)
-		_ = try? context.execute(deleteRequest)
+		context.performAndWait {
+			guard isReady else { return }
+			let deleteRequest = NSBatchDeleteRequest(fetchRequest: (request as? NSFetchRequest<NSFetchRequestResult>)!)
+			_ = try? context.execute(deleteRequest)
+		}
 	}
 	
 	func countContent<T: NSManagedObject>(for type: T.Type) -> String {
@@ -67,59 +76,46 @@ final class Storage: ObservableObject {
 		return "\((try? context.count(for: request)) ?? 0)"
 	}
 
-	private func _loadPersistentStoreAggressively() {
-		container.loadPersistentStores { description, error in
-			if error != nil {
-				self._destroyStore(at: description.url)
-				self.container.loadPersistentStores { _, error in
-					if let error {
-						fatalError("Core Data unrecoverable: \(error)")
-					}
-				}
+	func retryLoad() {
+		guard !isReady else { return }
+		loadError = nil
+		if container.persistentStoreCoordinator.persistentStores.isEmpty {
+			container.loadPersistentStores { _, error in
+				self.loadError = error?.localizedDescription
 			}
+		}
+		guard loadError == nil else { return }
+		do {
+			try context.performAndWait {
+				try _migrateSortIndexIfNeeded()
+			}
+			isReady = true
+		} catch {
+			context.rollback()
+			loadError = error.localizedDescription
 		}
 	}
 
 	// Backfills sortIndex from the old date-desc order so manual reordering starts stable
-	private func _migrateSortIndexIfNeeded() {
+	private func _migrateSortIndexIfNeeded() throws {
 		let key = "feather.sortIndexMigrated"
 		guard !UserDefaults.standard.bool(forKey: key) else { return }
 
 		let signedRequest: NSFetchRequest<Signed> = Signed.fetchRequest()
 		signedRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Signed.date, ascending: false)]
-		if let apps = try? context.fetch(signedRequest) {
+		do {
+			let apps = try context.fetch(signedRequest)
 			for (index, app) in apps.enumerated() { app.sortIndex = Int32(index) }
 		}
 
 		let importedRequest: NSFetchRequest<Imported> = Imported.fetchRequest()
 		importedRequest.sortDescriptors = [NSSortDescriptor(keyPath: \Imported.date, ascending: false)]
-		if let apps = try? context.fetch(importedRequest) {
+		do {
+			let apps = try context.fetch(importedRequest)
 			for (index, app) in apps.enumerated() { app.sortIndex = Int32(index) }
 		}
 
-		saveContext()
+		if context.hasChanges { try context.save() }
 		UserDefaults.standard.set(true, forKey: key)
-	}
-
-	private func _destroyStore(at url: URL?) {
-		guard let url else { return }
-
-		let base = url.deletingPathExtension()
-		let fm = FileManager.default
-
-		let files = [
-			base.appendingPathExtension("sqlite"),
-			base.appendingPathExtension("sqlite-wal"),
-			base.appendingPathExtension("sqlite-shm")
-		]
-
-		for file in files {
-			try? fm.removeItem(at: file)
-		}
-
-		try? FileManager.default.removeFileIfNeeded(at: FileManager.default.signed)
-		try? FileManager.default.removeFileIfNeeded(at: FileManager.default.unsigned)
-		try? FileManager.default.removeFileIfNeeded(at: FileManager.default.certificates)
-		UserDefaults.standard.set(0, forKey: "feather.selectedCert")
 	}
 }

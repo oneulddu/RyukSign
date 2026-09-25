@@ -22,29 +22,33 @@ extension Storage {
         appIcon: String? = nil,
         appDescription: String? = nil,
 
-        completion: @escaping (Signed) -> Void
+        completion: @escaping (Result<Signed, Error>) -> Void
     ) {
-        let generator = UIImpactFeedbackGenerator(style: .light)
+        context.performAndWait {
+            let new = Signed(context: context)
 
-        let new = Signed(context: context)
+            new.uuid = uuid
+            new.source = source
+            new.date = Date()
+            new.certificate = certificate
+            new.sortIndex = nextSignedSortIndex()
 
-        new.uuid = uuid
-        new.source = source
-        new.date = Date()
-        new.certificate = certificate
-        new.sortIndex = nextSignedSortIndex()
+            // Identifier before PPQ protection / modifications
+            new.originalIdentifier = originalAppIdentifier ?? appIdentifier
+            new.identifier = appIdentifier
+            new.name = appName
+            new.icon = appIcon
+            new.version = appVersion
+            new.appDescription = appDescription
 
-        // Identifier before PPQ protection / modifications
-        new.originalIdentifier = originalAppIdentifier ?? appIdentifier
-        new.identifier = appIdentifier
-        new.name = appName
-        new.icon = appIcon
-        new.version = appVersion
-        new.appDescription = appDescription
-
-        saveContext()
-        generator.impactOccurred()
-        completion(new)
+            switch saveContext() {
+            case .success:
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                completion(.success(new))
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
     }
 
     // Below the current lowest so new apps land at the top

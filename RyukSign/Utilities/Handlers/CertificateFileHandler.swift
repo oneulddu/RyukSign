@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Darwin
 import OSLog
 
 final class CertificateFileHandler: NSObject {
@@ -18,6 +19,8 @@ final class CertificateFileHandler: NSObject {
 	private let _certNickname: String?
 	private let _isDefault: Bool
 	
+	private var _copiedDirectory: URL?
+	private var _didAddToDatabase = false
 	private var _certPair: Certificate?
 	
 	init(
@@ -47,25 +50,49 @@ final class CertificateFileHandler: NSObject {
 		
 		let destinationURL = try await _directory()
 
-		try _fileManager.createDirectory(at: destinationURL, withIntermediateDirectories: true)
-		try _fileManager.copyItem(at: _key, to: destinationURL.appendingPathComponent(_key.lastPathComponent))
-		try _fileManager.copyItem(at: _provision, to: destinationURL.appendingPathComponent(_provision.lastPathComponent))
-	}
-	
-	func addToDatabase() async throws {
-		
-		Storage.shared.addCertificate(
-			uuid: _uuid,
-			password: _keyPassword,
-			nickname: _certNickname,
-			ppq: _certPair?.PPQCheck ?? false,
-			expiration: _certPair?.ExpirationDate ?? Date(),
-			isDefault: _isDefault
-		) { _ in
-			Logger.misc.info("[\(self._uuid)] Added to database")
+		try _fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+		// An existing directory is never ours to clean up.
+		guard mkdir(destinationURL.path, mode_t(S_IRWXU)) == 0 else {
+			throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+		}
+		_copiedDirectory = destinationURL
+		do {
+			try _fileManager.copyItem(at: _key, to: destinationURL.appendingPathComponent(_key.lastPathComponent))
+			try _fileManager.copyItem(at: _provision, to: destinationURL.appendingPathComponent(_provision.lastPathComponent))
+		} catch {
+			_cleanUnregisteredCopy()
+			throw error
 		}
 	}
 	
+	func addToDatabase() async throws {
+		do {
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+				Storage.shared.addCertificate(
+					uuid: _uuid,
+					password: _keyPassword,
+					nickname: _certNickname,
+					ppq: _certPair?.PPQCheck ?? false,
+					expiration: _certPair?.ExpirationDate ?? Date(),
+					isDefault: _isDefault
+				) { error in
+					if let error { continuation.resume(throwing: error) }
+					else { continuation.resume() }
+				}
+			}
+			_didAddToDatabase = true
+			Logger.misc.info("[\(self._uuid)] Added to database")
+		} catch {
+			_cleanUnregisteredCopy()
+			throw error
+		}
+	}
+
+	private func _cleanUnregisteredCopy() {
+		guard !_didAddToDatabase, let directory = _copiedDirectory else { return }
+		try? _fileManager.removeItem(at: directory)
+	}
+
 	private func _directory() async throws -> URL {
 		// Documents/Feather/Certificates/\(UUID)
 		_fileManager.certificates(_uuid)
