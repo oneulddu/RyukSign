@@ -117,13 +117,11 @@ final class AppInstaller: ObservableObject {
 
 	/// Copying and zipping the bundle stays off the main actor; both are long and fully blocking.
 	private func _package() async throws -> (package: URL, exported: URL?) {
-		let app = app
-		let viewModel = viewModel
+		let handler = ArchiveHandler(app: app, viewModel: viewModel)
 		let isSharing = _isSharing
 		let useShareSheet = _useShareSheet
 
 		return try await Task.detached(priority: .userInitiated) {
-			let handler = ArchiveHandler(app: app, viewModel: viewModel)
 			try await handler.move()
 			let package = try await handler.archive()
 

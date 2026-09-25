@@ -18,13 +18,18 @@ final class ArchiveHandler: NSObject {
 	private let _uuid = UUID().uuidString
 	private var _payloadUrl: URL?
 
-	private var _app: AppInfoPresentable
+	private let _appURL: URL?
+	private let _appName: String?
+	private let _appVersion: String?
 	private let _uniqueWorkDir: URL
-	private var backgroundTaskManager: BackgroundTaskManager?
 	
+	// Snapshot Core Data-backed app values before packaging off the main actor, as in KorSign.
+	@MainActor
 	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) {
 		self.viewModel = viewModel
-		self._app = app
+		self._appURL = Storage.shared.getAppDirectory(for: app)
+		self._appName = app.name
+		self._appVersion = app.version
 		self._uniqueWorkDir = _fileManager.temporaryDirectory
 			.appendingPathComponent("FeatherInstall_\(_uuid)", isDirectory: true)
 		
@@ -32,7 +37,7 @@ final class ArchiveHandler: NSObject {
 	}
 	
 	func move() async throws {
-		guard let appUrl = Storage.shared.getAppDirectory(for: _app) else {
+		guard let appUrl = _appURL else {
 			throw SigningFileHandlerError.appNotFound
 		}
 		
@@ -45,51 +50,32 @@ final class ArchiveHandler: NSObject {
 		_payloadUrl = payloadUrl
 	}
 	
+	// Keep this async and nonisolated: with the app's Swift concurrency settings it runs
+	// off the main actor at the caller's priority. The install/update pipeline owns keep-alive.
 	func archive() async throws -> URL {
-		// Keep archiving alive in the background.
-		await MainActor.run {
-			if self.backgroundTaskManager == nil {
-				self.backgroundTaskManager = BackgroundTaskManager(
-					taskName: "ArchiveHandler",
-					expirationTitle: "Archiving continuing",
-					expirationBody: "The archiving will continue when you reopen the app"
-				)
-				self.backgroundTaskManager?.start()
-			}
+		guard let payloadUrl = self._payloadUrl else {
+			throw SigningFileHandlerError.appNotFound
 		}
 
-		return try await Task.detached(priority: .background) { [self] in
-			defer {
+		let ipaUrl = self._uniqueWorkDir.appendingPathComponent("Archive.ipa")
+		let gate = ProgressGate()
+
+		try AppArchiver.zip(
+			payload: payloadUrl,
+			to: ipaUrl,
+			compression: ZipCompression.allCases[ArchiveHandler.getCompressionLevel()],
+			progress: { progress in
+				guard gate.admit(progress) else { return }
 				Task { @MainActor in
-					self.backgroundTaskManager?.stop()
-					self.backgroundTaskManager = nil
+					self.viewModel.packageProgress = progress
 				}
-			}
+			})
 
-			guard let payloadUrl = self._payloadUrl else {
-				throw SigningFileHandlerError.appNotFound
-			}
-
-			let ipaUrl = self._uniqueWorkDir.appendingPathComponent("Archive.ipa")
-			let gate = ProgressGate()
-
-			try AppArchiver.zip(
-				payload: payloadUrl,
-				to: ipaUrl,
-				compression: ZipCompression.allCases[ArchiveHandler.getCompressionLevel()],
-				progress: { progress in
-					guard gate.admit(progress) else { return }
-					Task { @MainActor in
-						self.viewModel.packageProgress = progress
-					}
-				})
-
-			return ipaUrl
-		}.value
+		return ipaUrl
 	}
 	
 	func moveToArchive(_ package: URL, shouldOpen: Bool = false) async throws -> URL? {
-		let appendingString = "\(_app.name!)_\(_app.version!)_\(Int(Date().timeIntervalSince1970)).ipa"
+		let appendingString = "\(_appName!)_\(_appVersion!)_\(Int(Date().timeIntervalSince1970)).ipa"
 		let dest = _fileManager.archives.appendingPathComponent(appendingString)
 		
 		try? _fileManager.moveItem(
