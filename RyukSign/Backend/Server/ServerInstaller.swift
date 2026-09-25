@@ -19,18 +19,34 @@ class ServerInstaller: Identifiable, ObservableObject {
 	let id = UUID()
 	let port = Int.random(in: 4000...8000)
 	private var _needsShutdown = false
+	private var _acceptsUpdates = true
 
-	var packageUrl: URL?
+	private let _packageLock = NSLock()
+	private var _package: InstallationArchive?
+	var package: InstallationArchive? {
+		get {
+			_packageLock.lock()
+			defer { _packageLock.unlock() }
+			return _package
+		}
+		set {
+			_packageLock.lock()
+			defer { _packageLock.unlock() }
+			_package = newValue
+		}
+	}
 	var manifestUrl: URL?
 	private(set) var startupError: Error?
-	var app: AppInfoPresentable
+	// HTTP callbacks use values captured on the view context queue.
+	let app: (identifier: String?, name: String?, version: String?)
 	@ObservedObject var viewModel: InstallerStatusViewModel
 	private var _server: Application?
 
 	private var backgroundTaskManager: BackgroundTaskManager?
 
+	@MainActor
 	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) throws {
-		self.app = app
+		self.app = (app.identifier, app.name, app.version)
 		self.viewModel = viewModel
 
 		let mode = getServerMethod() == 1 ? "semi-local" : "fully-local"
@@ -62,15 +78,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 
 			switch req.url.path {
 			case plistEndpoint.path:
-				self._updateStatus(.sendingManifest)
-				if self.backgroundTaskManager == nil {
-					self.backgroundTaskManager = BackgroundTaskManager(
-						taskName: "ServerInstaller",
-						expirationTitle: "Installation continuing",
-						expirationBody: "Keep the app open to complete the installation"
-					)
-					self.backgroundTaskManager?.start()
-				}
+				if req.method == .GET { self._updateStatus(.sendingManifest) }
 				return Response(status: .ok, version: req.version, headers: [
 					"Content-Type": "text/xml",
 				], body: .init(data: installManifestData))
@@ -83,24 +91,49 @@ class ServerInstaller: Identifiable, ObservableObject {
 					"Content-Type": "image/png",
 				], body: .init(data: displayImageLargeData))
 			case payloadEndpoint.path:
-				guard let packageUrl = packageUrl else {
+				guard let package = package else {
+					FileLogger.error("payload unavailable request=\(req.method)", category: "install")
 					return Response(status: .notFound)
 				}
 
-				self._updateStatus(.sendingPayload)
+				// Vapor routes HEAD through GET, but suppresses the response body. It must
+				// never start a transfer, finish one, or change the install state.
+				guard req.method == .GET else {
+					let response = req.fileio.streamFile(at: package.url.path, mediaType: .binary) { [package] _ in
+						withExtendedLifetime(package) {}
+					}
+					response.headers.responseCompression = .disable
+					FileLogger.log("payload probe HTTP \(response.status.code) bytes=\(response.headers.first(name: .contentLength) ?? "unknown")", category: "install")
+					return response
+				}
 
-				return req.fileio.streamFile(
-					at: packageUrl.path
-				) { result in
+				let requestID = UUID().uuidString
+				FileLogger.log("payload GET id=\(requestID) range=\(req.headers.first(name: .range) ?? "full")", category: "install")
+				let response = req.fileio.streamFile(at: package.url.path, mediaType: .binary) { [weak self, package] result in
+					defer { withExtendedLifetime(package) {} }
+					guard let self else { return }
 					switch result {
 					case .success:
+						FileLogger.log("payload stream completed id=\(requestID)", category: "install")
 						self._updateStatus(.installing)
 					case .failure(let error):
+						FileLogger.error("payload stream failed id=\(requestID): \(error)", category: "install")
 						self._updateStatus(.broken(error))
-						self.backgroundTaskManager?.stop()
-						self.backgroundTaskManager = nil
 					}
 				}
+				// IPAs are already ZIPs. Compressing HEAD's empty body advertises the
+				// compressed empty size instead of the IPA size, breaking iOS preflight.
+				response.headers.responseCompression = .disable
+				FileLogger.log("payload response id=\(requestID) HTTP \(response.status.code) bytes=\(response.headers.first(name: .contentLength) ?? "unknown")", category: "install")
+				if response.status == .ok || response.status == .partialContent {
+					self._updateStatus(.sendingPayload)
+				} else if response.status == .notModified {
+					// Cached bytes are available, but Vapor will not call stream completion.
+					self._updateStatus(.installing)
+				} else {
+					self._updateStatus(.broken(Abort(response.status, reason: "Could not serve the signed IPA.")))
+				}
+				return response
 			case "/healthz":
 				return Response(status: .ok)
 			case "/install":
@@ -131,24 +164,55 @@ class ServerInstaller: Identifiable, ObservableObject {
 
 		do {
 			let (_, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 10))
-			FileLogger.log("self check reached the server: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)", category: "install")
-			return nil
+			let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+			FileLogger.log("self check reached the server: HTTP \(status)", category: "install")
+			return status == 200 ? nil : Abort(.badGateway, reason: "Installation server health check returned HTTP \(status).")
 		} catch {
 			FileLogger.error("self check could not reach \(url.absoluteString): \(error.localizedDescription)", category: "install")
 			return error
 		}
 	}
 	
+	/// Called on the main actor when a request finishes or the user stops it.
+	func stop() {
+		_acceptsUpdates = false
+		backgroundTaskManager?.stop()
+		backgroundTaskManager = nil
+		_shutdownServer()
+	}
+
 	private func _shutdownServer() {
-		guard _needsShutdown else { return }
-		
+		let package = package
+		self.package = nil
+		guard let server = _server else { return }
+		let needsShutdown = _needsShutdown
 		_needsShutdown = false
-		_server?.server.shutdown()
-		_server?.shutdown()
+		_server = nil
+		FileLogger.log("installation server stopping id=\(id)", category: "install")
+		DispatchQueue.global(qos: .utility).async {
+			defer { withExtendedLifetime(package) {} }
+			if needsShutdown { server.server.shutdown() }
+			// Application resources also need cleanup when the listener failed to start.
+			server.shutdown()
+		}
 	}
 	
 	private func _updateStatus(_ newStatus: InstallerStatusViewModel.InstallerStatus) {
 		DispatchQueue.main.async {
+			guard self._acceptsUpdates else { return }
+			if case .sendingManifest = newStatus, self.backgroundTaskManager == nil {
+				self.backgroundTaskManager = BackgroundTaskManager(
+					taskName: "ServerInstaller", expirationTitle: "Installation continuing",
+					expirationBody: "Keep the app open to complete the installation")
+				self.backgroundTaskManager?.start()
+			}
+			switch self.viewModel.status {
+			case .completed, .broken: return
+			case .sendingPayload, .installing:
+				if case .sendingManifest = newStatus { return }
+				if case .installing = self.viewModel.status, case .sendingPayload = newStatus { return }
+			default: break
+			}
 			self.viewModel.status = newStatus
 		}
 	}

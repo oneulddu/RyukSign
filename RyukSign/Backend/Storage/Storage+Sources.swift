@@ -26,29 +26,30 @@ extension Storage {
 		deferSave: Bool = false,
 		completion: @escaping (Error?) -> Void
 	) {
-		if sourceExists(identifier) {
-			completion(nil)
-			Logger.misc.debug("ignoring \(identifier)")
-			return
-		}
-		
-		let generator = UIImpactFeedbackGenerator(style: .light)
-		
-		let new = AltSource(context: context)
-		new.name = name
-		new.date = Date()
-		new.identifier = identifier
-		new.sourceURL = url
-		new.iconURL = iconURL
-		
-		do {
-			if !deferSave {
-				try context.save()
-				generator.impactOccurred()
+		context.performAndWait {
+			do { try requireReady() } catch { completion(error); return }
+			if sourceExists(identifier) {
+				completion(nil)
+				Logger.misc.debug("ignoring \(identifier)")
+				return
 			}
-			completion(nil)
-		} catch {
-			completion(error)
+
+			let new = AltSource(context: context)
+			new.name = name
+			new.date = Date()
+			new.identifier = identifier
+			new.sourceURL = url
+			new.iconURL = iconURL
+		
+			do {
+				if !deferSave {
+					try saveContext().get()
+					UIImpactFeedbackGenerator(style: .light).impactOccurred()
+				}
+				completion(nil)
+			} catch {
+				completion(error)
+			}
 		}
 	}
 	
@@ -75,47 +76,51 @@ extension Storage {
 		repos: [URL: ASRepository],
 		completion: @escaping (Error?) -> Void
 	) {
-		let generator = UIImpactFeedbackGenerator(style: .light)
-		
-		for (url, repo) in repos {
-			addSource(
-				url,
-				repository: repo,
-				deferSave: true,
-				completion: { error in
-					if let error {
-						completion(error)
-					}
+		context.performAndWait {
+			for (url, repo) in repos {
+				var insertionError: Error?
+				addSource(url, repository: repo, deferSave: true) { insertionError = $0 }
+				if let insertionError {
+					context.rollback()
+					completion(insertionError)
+					return
 				}
-			)
+			}
+
+			switch saveContext() {
+			case .success:
+				UIImpactFeedbackGenerator(style: .light).impactOccurred()
+				completion(nil)
+			case .failure(let error): completion(error)
+			}
 		}
-		
-		saveContext()
-		generator.impactOccurred()
-		completion(nil)
 	}
 
 	func deleteSource(for source: AltSource) {
-		if let url = source.sourceURL {
-			let remainingURLs = getSources()
-				.filter { $0 != source }
-				.compactMap { $0.sourceURL }
-			RyukSignAPI.unregisterPremiumSourceIfNeeded(url, remainingSourceURLs: remainingURLs)
+		context.performAndWait {
+			guard isReady else { return }
+			let url = source.sourceURL
+			context.delete(source)
+			guard case .success = saveContext() else { return }
+			if let url {
+				let remainingURLs = getSources().compactMap { $0.sourceURL }
+				RyukSignAPI.unregisterPremiumSourceIfNeeded(url, remainingSourceURLs: remainingURLs)
+			}
 		}
-		context.delete(source)
-		saveContext()
 	}
 
 	func sourceExists(_ identifier: String) -> Bool {
-		let fetchRequest: NSFetchRequest<AltSource> = AltSource.fetchRequest()
-		fetchRequest.predicate = NSPredicate(format: "identifier == %@", identifier)
+		context.performAndWait {
+			let fetchRequest: NSFetchRequest<AltSource> = AltSource.fetchRequest()
+			fetchRequest.predicate = NSPredicate(format: "identifier == %@", identifier)
 
-		do {
-			let count = try context.count(for: fetchRequest)
-			return count > 0
-		} catch {
-			Logger.misc.error("Error checking if repository exists: \(error)")
-			return false
+			do {
+				let count = try context.count(for: fetchRequest)
+				return count > 0
+			} catch {
+				Logger.misc.error("Error checking if repository exists: \(error)")
+				return false
+			}
 		}
 	}
 }

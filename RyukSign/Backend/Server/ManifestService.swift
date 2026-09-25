@@ -15,6 +15,7 @@ enum ManifestService {
 		"https://api.palera.in/genPlist",
 	]
 	
+	@MainActor
 	static func resolve(for app: AppInfoPresentable, payload: URL) async -> URL? {
 		let candidates = endpoints.compactMap { _url(endpoint: $0, app: app, payload: payload) }
 		
@@ -28,6 +29,7 @@ enum ManifestService {
 		return candidates.first
 	}
 	
+	@MainActor
 	private static func _url(endpoint: String, app: AppInfoPresentable, payload: URL) -> URL? {
 		guard
 			var comps = URLComponents(string: endpoint),

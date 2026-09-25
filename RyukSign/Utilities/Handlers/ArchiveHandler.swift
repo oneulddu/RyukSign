@@ -15,13 +15,13 @@ final class ArchiveHandler: NSObject {
 	let viewModel: InstallerStatusViewModel
 
 	private let _fileManager = FileManager.default
-	private let _uuid = UUID().uuidString
+	private let _archive = InstallationArchive()
 	private var _payloadUrl: URL?
 
 	private let _appURL: URL?
 	private let _appName: String?
 	private let _appVersion: String?
-	private let _uniqueWorkDir: URL
+	private var _uniqueWorkDir: URL { _archive.directory }
 	
 	// Snapshot Core Data-backed app values before packaging off the main actor, as in KorSign.
 	@MainActor
@@ -30,9 +30,6 @@ final class ArchiveHandler: NSObject {
 		self._appURL = Storage.shared.getAppDirectory(for: app)
 		self._appName = app.name
 		self._appVersion = app.version
-		self._uniqueWorkDir = _fileManager.temporaryDirectory
-			.appendingPathComponent("FeatherInstall_\(_uuid)", isDirectory: true)
-		
 		super.init()
 	}
 	
@@ -52,12 +49,12 @@ final class ArchiveHandler: NSObject {
 	
 	// Keep this async and nonisolated: with the app's Swift concurrency settings it runs
 	// off the main actor at the caller's priority. The install/update pipeline owns keep-alive.
-	func archive() async throws -> URL {
+	func archive() async throws -> InstallationArchive {
 		guard let payloadUrl = self._payloadUrl else {
 			throw SigningFileHandlerError.appNotFound
 		}
 
-		let ipaUrl = self._uniqueWorkDir.appendingPathComponent("Archive.ipa")
+		let ipaUrl = _archive.url
 		let gate = ProgressGate()
 
 		try AppArchiver.zip(
@@ -71,25 +68,43 @@ final class ArchiveHandler: NSObject {
 				}
 			})
 
-		return ipaUrl
+		return _archive
 	}
 	
 	func moveToArchive(_ package: URL, shouldOpen: Bool = false) async throws -> URL? {
-		let appendingString = "\(_appName!)_\(_appVersion!)_\(Int(Date().timeIntervalSince1970)).ipa"
-		let dest = _fileManager.archives.appendingPathComponent(appendingString)
-		
-		try? _fileManager.moveItem(
-			at: package,
-			to: dest
-		)
-		
-		if shouldOpen {
-			await MainActor.run {
-				UIApplication.open(FileManager.default.archives.toSharedDocumentsURL()!)
+		let base = "\(Self.exportStem(name: _appName, version: _appVersion))_\(Int(Date().timeIntervalSince1970))"
+		try _fileManager.createDirectoryIfNeeded(at: _fileManager.archives)
+		var number = 1
+		while true {
+			let suffix = number == 1 ? "" : " (\(number))"
+			let dest = _fileManager.archives.appendingPathComponent("\(base)\(suffix).ipa")
+			do {
+				try _fileManager.moveItem(at: package, to: dest)
+			} catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
+				number += 1
+				continue
 			}
+			if shouldOpen {
+				await MainActor.run {
+					if let url = FileManager.default.archives.toSharedDocumentsURL() { UIApplication.open(url) }
+				}
+			}
+			return dest
 		}
-		
-		return dest
+	}
+
+	/// Preserve the existing name_version_timestamp format while keeping metadata in one path component.
+	static func exportStem(name: String?, version: String?) -> String {
+		let parts = [name ?? "App", version ?? "Unknown"]
+		let unsafe = CharacterSet.controlCharacters.union(CharacterSet(charactersIn: "/\\:*?\"<>|"))
+		var stem = ""
+		for character in parts.joined(separator: "_") {
+			let text = character.unicodeScalars.contains(where: unsafe.contains) ? "_" : String(character)
+			guard (stem + text).decomposedStringWithCanonicalMapping.utf8.count <= 180 else { break }
+			stem += text
+		}
+		stem = stem.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+		return stem.isEmpty ? "App" : stem
 	}
 	
 	static func getCompressionLevel() -> Int {

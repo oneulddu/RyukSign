@@ -108,44 +108,31 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 		let download = self._download
 
 		do {
-			// Timeout protection against an indefinite hang.
-			try await withThrowingTaskGroup(of: Void.self) { group in
-				group.addTask {
-					try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-						DispatchQueue.global(qos: .utility).async {
-							do {
-								try Zip.unzipFile(
-									self._ipa,
-									destination: self._uniqueWorkDir,
-									overwrite: true,
-									password: nil,
-									progress: { progress in
-										if let download = download {
-											DispatchQueue.main.async {
-												download.unpackageProgress = progress
-											}
-										}
-									}
-								)
-
-								self.uniqueWorkDirPayload = self._uniqueWorkDir.appendingPathComponent("Payload")
-								continuation.resume()
-							} catch {
-								continuation.resume(throwing: error)
+			// Zip cannot be cancelled by a task-group timer. Await its actual result
+			// before allowing the caller to move or clean the extracted files.
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+				DispatchQueue.global(qos: .userInitiated).async {
+					let gate = ProgressGate()
+					do {
+						try Zip.unzipFile(
+							self._ipa,
+							destination: self._uniqueWorkDir,
+							overwrite: true,
+							password: nil,
+							progress: { progress in
+								guard let download = download, gate.admit(progress) else { return }
+								DispatchQueue.main.async {
+									download.unpackageProgress = progress
+								}
 							}
-						}
+						)
+
+						self.uniqueWorkDirPayload = self._uniqueWorkDir.appendingPathComponent("Payload")
+						continuation.resume()
+					} catch {
+						continuation.resume(throwing: error)
 					}
 				}
-
-				// 5-minute timeout for large files.
-				group.addTask {
-					try await Task.sleep(for: .seconds(300))
-					throw self._error(.extract, reason: "Extraction timed out after 5 minutes. The file may be very large, incomplete, or corrupted.")
-				}
-
-				try await group.next()!
-
-				group.cancelAll()
 			}
 		} catch let error as ImportError {
 			throw error
@@ -200,24 +187,8 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 		}
 
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-			// Guard against a double-resume (slow DB completion + timeout both firing → crash).
-			let lock = NSLock()
-			var didResume = false
-			func finish(_ result: Result<Void, Error>) {
-				lock.lock()
-				defer { lock.unlock() }
-				guard !didResume else { return }
-				didResume = true
-				continuation.resume(with: result)
-			}
-
-			let timeoutTask = DispatchWorkItem {
-				Logger.misc.error("[\(self._uuid)] Database operation timed out")
-				finish(.failure(self._error(.database, reason: "Saving to the library timed out. The app database may be busy — please try again.")))
-			}
-
-			DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeoutTask)
-
+			// Await the save result before cleanup can remove its payload. A timeout cannot
+			// cancel Core Data and could otherwise leave a late saved row with missing files.
 			Storage.shared.addImported(
 				uuid: _uuid,
 				appName: bundle.name,
@@ -226,14 +197,12 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 				appIcon: bundle.iconFileName,
 				appDescription: _appDescription
 			) { error in
-				timeoutTask.cancel()
-
 				if let error = error {
 					Logger.misc.error("[\(self._uuid)] Database add failed: \(error.localizedDescription)")
-					finish(.failure(self._error(.database, reason: error.localizedDescription, underlying: error)))
+					continuation.resume(throwing: self._error(.database, reason: error.localizedDescription, underlying: error))
 				} else {
 					Logger.misc.info("[\(self._uuid)] Added to database")
-					finish(.success(()))
+					continuation.resume()
 				}
 			}
 		}

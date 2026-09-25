@@ -77,6 +77,7 @@ final class AppInstaller: ObservableObject {
 	func stop() {
 		_hasFinished = true
 		_completion = nil
+		_server?.stop()
 		_disarmDeclineWatch()
 		_statusObserver = nil
 		_progressTask?.cancel()
@@ -95,7 +96,9 @@ final class AppInstaller: ObservableObject {
 		defer { keepAlive.stop() }
 
 		do {
-			let (packageUrl, exported) = try await _package()
+			let (package, exported) = try await _package()
+			defer { withExtendedLifetime(package) {} }
+			guard !_hasFinished else { return }
 
 			guard !_isSharing else {
 				_finish(.success(.exported(_useShareSheet ? exported : nil)))
@@ -105,9 +108,9 @@ final class AppInstaller: ObservableObject {
 			switch _installationMethod {
 			case 1:
 				try await InstallationProxy(viewModel: viewModel)
-					.install(at: packageUrl, suspend: app.identifier == Bundle.main.bundleIdentifier!)
+					.install(at: package.url, suspend: app.identifier == Bundle.main.bundleIdentifier!)
 			default:
-				await _serveForOTA(packageUrl)
+				await _serveForOTA(package)
 			}
 		} catch {
 			_progressTask?.cancel()
@@ -116,7 +119,7 @@ final class AppInstaller: ObservableObject {
 	}
 
 	/// Copying and zipping the bundle stays off the main actor; both are long and fully blocking.
-	private func _package() async throws -> (package: URL, exported: URL?) {
+	private func _package() async throws -> (package: InstallationArchive, exported: URL?) {
 		let handler = ArchiveHandler(app: app, viewModel: viewModel)
 		let isSharing = _isSharing
 		let useShareSheet = _useShareSheet
@@ -126,17 +129,18 @@ final class AppInstaller: ObservableObject {
 			let package = try await handler.archive()
 
 			guard isSharing else { return (package, nil) }
-			return (package, try await handler.moveToArchive(package, shouldOpen: !useShareSheet))
+			return (package, try await handler.moveToArchive(package.url, shouldOpen: !useShareSheet))
 		}.value
 	}
 
-	private func _serveForOTA(_ packageUrl: URL) async {
+	private func _serveForOTA(_ package: InstallationArchive) async {
 		guard let server = _server else {
 			_finish(.failure(Self.error(.localized("Could not build the installation link, check your connection and try again."))))
 			return
 		}
 
-		server.packageUrl = packageUrl
+		guard !_hasFinished else { return }
+		server.package = package
 
 		if _serverMethod == 1 {
 			viewModel.status = .sendingManifest
@@ -148,12 +152,14 @@ final class AppInstaller: ObservableObject {
 			failure = await server.selfCheck()
 		}
 
+		guard !_hasFinished else { return }
 		viewModel.status = failure.map { .broken($0) } ?? .ready
 	}
 
 	// MARK: Status
 
 	private func _handle(_ status: InstallerStatusViewModel.InstallerStatus) {
+		guard !_hasFinished else { return }
 		switch status {
 		case .ready where _installationMethod == 0:
 			_openInstall(_serverMethod == 0 ? _server?.iTunesLink : _server?.iTunesLinkExternal)
@@ -163,6 +169,8 @@ final class AppInstaller: ObservableObject {
 			isPresentingFallbackPage = false
 			_disarmDeclineWatch()
 		case .installing where _installationMethod == 0:
+			isPresentingFallbackPage = false
+			_disarmDeclineWatch()
 			_startProgressPolling()
 		case .completed(let result):
 			_progressTask?.cancel()
@@ -237,6 +245,9 @@ final class AppInstaller: ObservableObject {
 		guard !_hasFinished else { return }
 		_hasFinished = true
 		_disarmDeclineWatch()
+		_progressTask?.cancel()
+		_progressTask = nil
+		_server?.stop()
 		_statusObserver = nil
 
 		let completion = _completion

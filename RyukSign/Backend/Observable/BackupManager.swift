@@ -76,6 +76,19 @@ struct BackupManifest: Codable {
 		var iconURL: URL?
 	}
 
+	func validateCertificateIdentifiers() throws {
+		var seen = Set<UUID>()
+		for certificate in certificates {
+			guard let uuid = UUID(uuidString: certificate.uuid),
+				uuid.uuidString.caseInsensitiveCompare(certificate.uuid) == .orderedSame,
+				seen.insert(uuid).inserted else {
+				throw CocoaError(.fileReadCorruptFile, userInfo: [
+					NSLocalizedDescriptionKey: "The backup contains an invalid or duplicate certificate ID."
+				])
+			}
+		}
+	}
+
 	var storedContents: BackupComponents {
 		if let contents { return contents }
 		var inferred: BackupComponents = [.settings]
@@ -298,6 +311,7 @@ final class BackupManager {
 			guard let root = _findRoot(in: extractDir) else { throw BackupCrypto.Failure.badFormat }
 			let manifestData = try Data(contentsOf: root.appendingPathComponent("manifest.json"))
 			let manifest = try JSONDecoder().decode(BackupManifest.self, from: manifestData)
+			try manifest.validateCertificateIdentifiers()
 			return BackupArchive(manifest: manifest, root: root, work: work)
 		} catch {
 			try? _fm.removeItem(at: work)
@@ -305,7 +319,9 @@ final class BackupManager {
 		}
 	}
 
-	func restore(_ archive: BackupArchive, components: BackupComponents) -> BackupRestoreSummary {
+	func restore(_ archive: BackupArchive, components: BackupComponents) throws -> BackupRestoreSummary {
+		try archive.manifest.validateCertificateIdentifiers()
+		try Storage.shared.requireReady()
 		let manifest = archive.manifest
 		let root = archive.root
 		let wanted = components.intersection(archive.contents)
@@ -314,25 +330,33 @@ final class BackupManager {
 		if wanted.contains(.certificates) {
 			var added = 0
 			var skipped = 0
-			let existing = Set(Storage.shared.getAllCertificates().compactMap { $0.uuid })
+			let existing = Set(Storage.shared.getAllCertificates().compactMap { $0.uuid?.lowercased() })
 			for cert in manifest.certificates {
-				if existing.contains(cert.uuid) { skipped += 1; continue }
+				if existing.contains(cert.uuid.lowercased()) { skipped += 1; continue }
 				let srcDir = root.appendingPathComponent("certs").appendingPathComponent(cert.uuid)
 				guard _fm.fileExists(atPath: srcDir.path) else { continue }
 				let dstDir = _fm.certificates(cert.uuid)
-				do {
-					try _fm.removeFileIfNeeded(at: dstDir)
-					try _fm.copyItem(at: srcDir, to: dstDir)
-				} catch {
+				// Preserve even unregistered recovery files and dangling links already here.
+				if _fm.fileExists(atPath: dstDir.path) || (try? _fm.destinationOfSymbolicLink(atPath: dstDir.path)) != nil {
+					skipped += 1
 					continue
 				}
+				let staged = _fm.certificates(UUID().uuidString)
+				defer { try? _fm.removeItem(at: staged) }
+				try _fm.copyItem(at: srcDir, to: staged)
+				try _fm.moveItem(at: staged, to: dstDir)
+				var saveError: Error?
 				Storage.shared.addCertificate(
 					uuid: cert.uuid,
 					password: cert.password,
 					nickname: cert.nickname,
 					ppq: cert.ppq,
 					expiration: cert.expiration
-				) { _ in }
+				) { saveError = $0 }
+				if let saveError {
+					try? _fm.removeItem(at: dstDir)
+					throw saveError
+				}
 				added += 1
 			}
 			summary.record(.certificates, added: added, skipped: skipped)
@@ -350,7 +374,9 @@ final class BackupManager {
 			var skipped = 0
 			for source in manifest.sources {
 				if Storage.shared.sourceExists(source.identifier) { skipped += 1; continue }
-				Storage.shared.addSource(source.url, name: source.name, identifier: source.identifier, iconURL: source.iconURL) { _ in }
+				var saveError: Error?
+				Storage.shared.addSource(source.url, name: source.name, identifier: source.identifier, iconURL: source.iconURL) { saveError = $0 }
+				if let saveError { throw saveError }
 				added += 1
 			}
 			summary.record(.sources, added: added, skipped: skipped)

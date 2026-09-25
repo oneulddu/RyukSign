@@ -225,48 +225,75 @@ class CertificateAutoImporter {
 		completion: @escaping (Error?) -> Void
 	) {
 		Task.detached {
+			let fm = FileManager.default
+			var transactionDirectory: URL?
+			var backupDirectory: URL?
 			do {
-				let certReader = CertificateReader(provisionURL)
-				guard let certPair = certReader.decoded else {
+				guard let certPair = CertificateReader(provisionURL).decoded else {
 					throw CertificateUpdateError.invalidCertificate
 				}
-
-				// Reuse the existing UUID directory.
-				let certDir = await MainActor.run {
-					Storage.shared.getUuidDirectory(for: cert)
-				}
-
-				guard let certDir = certDir else {
+				guard let certDir = await MainActor.run(body: { Storage.shared.getUuidDirectory(for: cert) }) else {
 					throw CertificateUpdateError.directoryNotFound
 				}
 
-				let p12Dest = certDir.appendingPathComponent("cert.p12")
-				let provisionDest = certDir.appendingPathComponent("cert.mobileprovision")
+				// Stage a complete replacement on the same volume. Source files and the
+				// live pair remain untouched if either copy fails.
+				let transaction = certDir.deletingLastPathComponent()
+					.appendingPathComponent(".certificate-update-" + UUID().uuidString, isDirectory: true)
+				let staged = transaction.appendingPathComponent("replacement", isDirectory: true)
+				let backup = transaction.appendingPathComponent("original", isDirectory: true)
+				try fm.createDirectory(at: transaction, withIntermediateDirectories: false)
+				transactionDirectory = transaction
+				backupDirectory = backup
+				try fm.copyItem(at: certDir, to: staged)
+				// Imports can retain arbitrary filenames. Do not leave a stale pair
+				// alongside cert.p12/cert.mobileprovision for getFile to select.
+				for file in try fm.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil)
+				where ["p12", "mobileprovision"].contains(file.pathExtension.lowercased()) {
+					try fm.removeItem(at: file)
+				}
+				try fm.copyItem(at: p12URL, to: staged.appendingPathComponent("cert.p12"))
+				try fm.copyItem(at: provisionURL, to: staged.appendingPathComponent("cert.mobileprovision"))
 
-				try? FileManager.default.removeItem(at: p12Dest)
-				try? FileManager.default.removeItem(at: provisionDest)
-
-				try FileManager.default.copyItem(at: p12URL, to: p12Dest)
-				try FileManager.default.copyItem(at: provisionURL, to: provisionDest)
-
-				await MainActor.run {
-					cert.password = password
-					cert.ppQCheck = certPair.PPQCheck ?? false
-					cert.expiration = certPair.ExpirationDate ?? Date()
-					cert.revoked = false
-					cert.date = Date()
-
-					Storage.shared.saveContext()
+				// No suspension between publishing files and saving metadata. A failed
+				// save rolls back Core Data; the catch restores the untouched directory.
+				try await MainActor.run {
+					try Storage.shared.requireReady()
+					try fm.moveItem(at: certDir, to: backup)
+					do {
+						try fm.moveItem(at: staged, to: certDir)
+						cert.password = password
+						cert.ppQCheck = certPair.PPQCheck ?? false
+						cert.expiration = certPair.ExpirationDate ?? Date()
+						cert.revoked = false
+						cert.date = Date()
+						try Storage.shared.saveContext().get()
+					} catch {
+						let updateError = error
+						do {
+							if fm.fileExists(atPath: certDir.path) {
+								try fm.moveItem(at: certDir, to: transaction.appendingPathComponent("failed-replacement"))
+							}
+							try fm.moveItem(at: backup, to: certDir)
+						} catch {
+							// Never clean up the only recoverable originals on a restore failure.
+							throw NSError(domain: "CertificateUpdate", code: 1, userInfo: [
+								NSLocalizedDescriptionKey: "Certificate update failed: \(updateError.localizedDescription). Originals are preserved at \(backup.path). Restore failed: \(error.localizedDescription)",
+								NSUnderlyingErrorKey: updateError
+							])
+						}
+						throw updateError
+					}
 					Storage.shared.revokagedCertificate(for: cert)
 				}
-
-				await MainActor.run {
-					completion(nil)
-				}
+				try? fm.removeItem(at: transaction)
+				await MainActor.run { completion(nil) }
 			} catch {
-				await MainActor.run {
-					completion(error)
+				if let transaction = transactionDirectory,
+				   backupDirectory.map({ !fm.fileExists(atPath: $0.path) }) ?? true {
+					try? fm.removeItem(at: transaction)
 				}
+				await MainActor.run { completion(error) }
 			}
 		}
 	}

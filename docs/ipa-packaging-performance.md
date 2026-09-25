@@ -12,6 +12,10 @@ across packaging, including errors. ArchiveHandler no longer starts a second man
 ProgressGate still limits UI updates. AppArchiver, both compression engines, compression
 levels, Payload layout, export filenames, and install/share destinations are unchanged.
 
+The later [reliability backports](korsign-reliability-backports.md) add explicit
+temporary-archive ownership and safe export error/collision handling. Ordinary
+export names and ZIP contents remain compatible.
+
 ## References
 
 - [Feather 2.9.0](https://github.com/claration/Feather/blob/v2.9.0/Feather/Utilities/Handlers/ArchiveHandler.swift)
