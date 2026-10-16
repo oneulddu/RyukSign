@@ -539,11 +539,17 @@ class DownloadManager: NSObject, ObservableObject {
 		let task = session.downloadTask(with: request)
 		download.task = task
 		task.priority = 1.0
-		task.resume()
 
 		DispatchQueue.main.async {
+			// Keep paused entries visible, but never register a canceled start.
+			guard download.isActive || download.isPaused else { return }
 			self.objectWillChange.send()
 			self.downloads.append(download)
+
+			// Delegate callbacks must be able to find the owner before any bytes arrive.
+			if download.isActive && !download.isPaused && download.task === task {
+				task.resume()
+			}
 
 			self.startProgressTimer()
 

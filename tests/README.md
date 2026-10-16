@@ -17,6 +17,7 @@ python3 tests/test_afc_upload_streaming.py
 python3 tests/test_malformed_inputs.py
 python3 tests/test_macho_patching.py
 python3 tests/test_download_staging.py
+python3 tests/test_download_lifecycle.py
 python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/checkouts
 ```
 
@@ -42,6 +43,11 @@ python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/che
   files fail without crashing or modifying the input.
 - Mach-O patching: native patchers under ASan/UBSan with synthetic thin/fat binaries,
   and the Swift callers that log failures and continue signing.
+- Download lifecycle: production start, task lookup, progress and completion methods with real
+  URLSession transfers from a loopback server. A busy main queue must not let requests start before
+  registration; fast and slow responses reach the same owner and retain their bytes. Controlled
+  pre-registration cancel/pause calls do not start a request or resurrect a canceled entry.
+  UI, import processing and background-session services are stubs; this does not validate iPhone VPN/DNS.
 - Download staging: same-name downloads keep separate files, cleanup removes only the
   owner's directory, and path-like server filenames stay contained.
 - Archive extraction: ZIP/TAR/DEB path containment, symlinks, collisions, CRC,
