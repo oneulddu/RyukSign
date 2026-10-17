@@ -18,6 +18,7 @@ python3 tests/test_malformed_inputs.py
 python3 tests/test_macho_patching.py
 python3 tests/test_download_staging.py
 python3 tests/test_download_lifecycle.py
+python3 tests/test_download_transport.py
 python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/checkouts
 ```
 
@@ -68,3 +69,11 @@ missing-file errors. The temporary SwiftPM build cache is retained for reuse.
 
 Physical iPhone installation, background expiration, third-party share destinations,
 and large-app timing still require device validation.
+
+The transport check requires macOS 14+ and compiles isolated Foundation probe apps
+with the production ATS dictionary. It issues short HEAD requests to non-self IPv4
+addresses: a timeout or refused connection means ATS permitted the request, not that
+a server worked. It verifies the previous policy rejects Tailscale HTTP, the four
+private/Tailscale ranges permit it, and public/out-of-range HTTP remains blocked.
+This is not an iPhone download or iOS 16 compatibility test. See
+[download transport policy](../docs/download-transport.md).
