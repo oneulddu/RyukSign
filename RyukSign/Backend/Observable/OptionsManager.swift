@@ -106,6 +106,8 @@ struct Options: Codable, Equatable {
 	var keychainIsolation: Bool
 	/// Injects the bundled fix that makes the document picker import files into the app's own container
 	var fixFilePicker: Bool
+	/// Signs without App Group entitlements; shared data, widgets and extensions may stop working.
+	var removeAppGroups: Bool
 	/// Resolved managed-tweak injections for this sign; per-sign working copy only. Optional so old saved options decode.
 	var tweakInjections: [TweakInjectionSpec]? = nil
 	/// Raw Info.plist overrides for this sign, kept as an XML plist blob so any value type survives.
@@ -160,6 +162,7 @@ struct Options: Codable, Equatable {
 		injectIntoExtensions: false,
 		keychainIsolation: false,
 		fixFilePicker: false,
+		removeAppGroups: false,
 
 		// MARK: Experiments
 		
@@ -288,6 +291,7 @@ extension Options {
 		injectIntoExtensions = try c.decodeIfPresent(Bool.self, forKey: .injectIntoExtensions) ?? d.injectIntoExtensions
 		keychainIsolation = try c.decodeIfPresent(Bool.self, forKey: .keychainIsolation) ?? d.keychainIsolation
 		fixFilePicker = try c.decodeIfPresent(Bool.self, forKey: .fixFilePicker) ?? d.fixFilePicker
+		removeAppGroups = try c.decodeIfPresent(Bool.self, forKey: .removeAppGroups) ?? d.removeAppGroups
 		// try? so a stale per-sign blob drops instead of resetting the whole struct.
 		tweakInjections = try? c.decode([TweakInjectionSpec].self, forKey: .tweakInjections)
 		infoPlistOverrides = try? c.decode(Data.self, forKey: .infoPlistOverrides)

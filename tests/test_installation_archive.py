@@ -179,7 +179,7 @@ pipeline_stubs = r'''
     var _installationMethod = 1
     let _serverMethod = 0
     var _server: ServerInstaller?
-    var isPresentingFallbackPage = true
+    var fallbackPage: URL? = URL(string: "https://fixture.invalid/install")
     var declineArmed = false
     var pollingStarts = 0
     func _openInstall(_ link: String?) {}
@@ -248,7 +248,7 @@ checks = r'''
         cachedPipeline.handle(.sendingManifest)
         assert(cachedPipeline.declineArmed)
         cachedPipeline.handle(.installing)
-        assert(!cachedPipeline.declineArmed && !cachedPipeline.isPresentingFallbackPage)
+        assert(!cachedPipeline.declineArmed && cachedPipeline.fallbackPage == nil)
         assert(cachedPipeline.pollingStarts == 1)
 
         // Partial packaging failure releases only that handler's disposable folder.

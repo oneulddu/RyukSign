@@ -204,6 +204,7 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 		}
 
 		_didAddToDatabase = true
+		AppOrigins.shared.set(_download?.origin, for: _uuid)
 
 		// The library row has to be read on the context's own queue.
 		guard let imported = await MainActor.run(body: { Storage.shared.app(withUuid: _uuid) }) else {

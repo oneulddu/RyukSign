@@ -3,237 +3,300 @@
 //  RyukSign
 //
 
-import SwiftUI
+import Foundation
 import Combine
-import AltSourceKit
-import NimbleViews
-import UIKit
 import CoreData
+import AltSourceKit
 import OSLog
 
-// MARK: - Shared Update Checker
+struct AppUpdate: Identifiable, Sendable {
+	struct Candidate: Identifiable, Sendable {
+		let sourceID: String
+		let sourceName: String
+		let repository: ASRepository
+		let app: ASRepository.App
+
+		var id: String { sourceID + "/" + app.currentUniqueId }
+		var version: String { app.currentVersion ?? "" }
+
+		func matches(_ pin: AppOrigin) -> Bool {
+			sourceID == pin.source && app.name == pin.name
+		}
+	}
+
+	let id: String
+	let name: String
+	let installedVersion: String
+	let libraryUUID: String
+	let libraryUUIDs: [String]
+	let candidates: [Candidate]
+	let isPinned: Bool
+
+	var best: Candidate { candidates[0] }
+
+	func scoped(to sourceIDs: Set<String>) -> AppUpdate? {
+		let scoped = candidates.filter { sourceIDs.contains($0.sourceID) }
+		guard !scoped.isEmpty else { return nil }
+		return AppUpdate(
+			id: id, name: name, installedVersion: installedVersion,
+			libraryUUID: libraryUUID, libraryUUIDs: libraryUUIDs,
+			candidates: scoped, isPinned: isPinned && scoped[0].id == best.id
+		)
+	}
+}
+
+@MainActor
 final class AppUpdateChecker: ObservableObject {
-    static let shared = AppUpdateChecker()
-    
-    @Published private(set) var appsWithUpdates: Set<String> = []
-    @Published private(set) var updateCount: Int = 0
-    
-    private var updateCache: [String: Bool] = [:]
-    private let cacheQueue = DispatchQueue(label: "com.feather.updatechecker", attributes: .concurrent)
-    
-    private init() {}
-    
-    func checkForUpdates(
-        app: ASRepository.App,
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) -> Bool {
-        let cacheKey = app.currentUniqueId
-        // Cached only — never compute during scroll.
-        return cacheQueue.sync(execute: { updateCache[cacheKey] }) ?? false
-    }
+	static let shared = AppUpdateChecker()
+	static let newestKey = "RyukSign.updateToNewest"
+	static let singleSourceKey = "RyukSign.updateSingleSourceDirectly"
+	static let launchCheckKey = "RyukSign.checkUpdatesOnLaunch"
+	static let groupKey = "RyukSign.groupUpdatesByApp"
 
-    func precomputeAllUpdates(
-        sources: [ASRepository],
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) async {
-        await Task.detached(priority: .userInitiated) {
-            var newCache: [String: Bool] = [:]
-            var updatesSet = Set<String>()
-            var uniqueApps = Set<String>()
+	@Published private(set) var updates: [AppUpdate] = []
+	@Published private(set) var pins: [String: AppOrigin]
 
-            // Read once off-main (UserDefaults is thread-safe); ignored apps don't count as updates.
-            let ignored = SkippedUpdatesManager.persisted
+	private(set) var libraryKeys: Set<String> = []
+	private var _byLibraryUUID: [String: AppUpdate] = [:]
+	private var _didPrune = false
+	private var _task: Task<Void, Never>?
+	private var _cancellables = Set<AnyCancellable>()
+	private let _trigger = PassthroughSubject<Void, Never>()
+	private static let _pinsKey = "RyukSign.updatePins"
 
-            for source in sources {
-                for app in source.apps {
-                    let hasUpdate = self.computeUpdate(
-                        app: app,
-                        signedApps: signedApps,
-                        importedApps: importedApps
-                    ) && !ignored.contains(app.id ?? "")
+	var updateCount: Int { updates.count }
 
-                    newCache[app.currentUniqueId] = hasUpdate
+	private init() {
+		pins = UserDefaults.standard.data(forKey: Self._pinsKey)
+			.flatMap { try? JSONDecoder().decode([String: AppOrigin].self, from: $0) } ?? [:]
 
-                    if hasUpdate {
-                        updatesSet.insert(app.currentUniqueId)
-                        if let installedApp = self.findInstalledApp(
-                            for: app,
-                            signedApps: signedApps,
-                            importedApps: importedApps
-                        ) {
-                            uniqueApps.insert(installedApp.uuid)
-                        }
-                    }
-                }
-            }
-            
-            let finalUpdatesSet = updatesSet
-            let finalUpdateCount = uniqueApps.count
+		let library = NotificationCenter.default
+			.publisher(for: .NSManagedObjectContextObjectsDidChange, object: Storage.shared.context)
+			.filter(Self._touchesLibrary)
+			.map { _ in }
 
-            await MainActor.run {
-                self.cacheQueue.async(flags: .barrier) {
-                    self.updateCache = newCache
-                }
-                self.appsWithUpdates = finalUpdatesSet
-                self.updateCount = finalUpdateCount
-            }
-        }.value
-    }
+		Publishers.MergeMany(
+			SourcesViewModel.shared.$sources.map { _ in }.eraseToAnyPublisher(),
+			Storage.shared.$isReady.map { _ in }.eraseToAnyPublisher(),
+			library.eraseToAnyPublisher(),
+			NotificationCenter.default.publisher(for: .skippedUpdatesChanged).map { _ in }.eraseToAnyPublisher(),
+			NotificationCenter.default.publisher(for: AppOrigins.didChange).map { _ in }.eraseToAnyPublisher(),
+			_trigger.eraseToAnyPublisher()
+		)
+		.debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+		.sink { [weak self] in self?._recompute() }
+		.store(in: &_cancellables)
+	}
 
-    private func computeUpdate(
-        app: ASRepository.App,
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) -> Bool {
-        guard let installed = findInstalledApp(
-            for: app,
-            signedApps: signedApps,
-            importedApps: importedApps
-        ) else {
-            return false
-        }
-        
-        return hasUpdate(
-            installedVersion: installed.version,
-            sourceVersion: app.currentVersion
-        )
-    }
-    
-    func clearCache() {
-        cacheQueue.async(flags: .barrier) { [weak self] in
-            self?.updateCache.removeAll()
-        }
-    }
-    
-    func findInstalledApp(
-        for app: ASRepository.App,
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) -> (version: String?, uuid: String)? {
-        let appBundleId = app.id ?? ""
-        let appNameLower = app.currentName.lowercased()
-        
-        guard !appBundleId.isEmpty || !appNameLower.isEmpty else { return nil }
+	// MARK: Queries
 
-        func identifiersMatch(_ sourceId: String, _ storedId: String?, _ originalId: String?) -> Bool {
-            if let originalId = originalId, sourceId == originalId { return true }
-            if let storedId = storedId, sourceId == storedId { return true }
-            return false
-        }
-        
-        var allMatchingVersions: [String] = []
-        var matchingUUID: String = ""
+	func update(for app: AppInfoPresentable) -> AppUpdate? {
+		app.uuid.flatMap { _byLibraryUUID[$0] }
+	}
 
-        for s in signedApps {
-            let identifierMatch = !appBundleId.isEmpty &&
-                identifiersMatch(appBundleId, s.identifier, s.originalIdentifier)
-            let nameMatch = (s.name ?? "").lowercased() == appNameLower
-            
-            if identifierMatch || nameMatch {
-                if let version = s.version {
-                    allMatchingVersions.append(version)
-                }
-                if matchingUUID.isEmpty {
-                    matchingUUID = s.uuid ?? ""
-                }
-            }
-        }
-        
-        for i in importedApps {
-            let identifierMatch = !appBundleId.isEmpty &&
-                identifiersMatch(appBundleId, i.identifier, i.originalIdentifier)
-            let nameMatch = (i.name ?? "").lowercased() == appNameLower
-            
-            if identifierMatch || nameMatch {
-                if let version = i.version {
-                    allMatchingVersions.append(version)
-                }
-                if matchingUUID.isEmpty {
-                    matchingUUID = i.uuid ?? ""
-                }
-            }
-        }
-        
-        guard !allMatchingVersions.isEmpty else { return nil }
+	func updates(in sourceIDs: Set<String>) -> [AppUpdate] {
+		updates.compactMap { $0.scoped(to: sourceIDs) }
+	}
 
-        let highestVersion = allMatchingVersions.max { v1, v2 in
-            return !isNewerVersion(v1, than: v2)
-        }
-        
-        return (highestVersion, matchingUUID)
-    }
-    
-    func hasUpdate(installedVersion: String?, sourceVersion: String?) -> Bool {
-        guard let currentVersion = installedVersion,
-              let newVersion = sourceVersion else { return false }
-        
-        return isNewerVersion(newVersion, than: currentVersion)
-    }
-    
-    private func isNewerVersion(_ new: String, than old: String) -> Bool {
-        let newComponents = new.split(separator: ".").compactMap { Int($0) }
-        let oldComponents = old.split(separator: ".").compactMap { Int($0) }
-        
-        let maxCount = max(newComponents.count, oldComponents.count)
-        
-        for i in 0..<maxCount {
-            let newValue = i < newComponents.count ? newComponents[i] : 0
-            let oldValue = i < oldComponents.count ? oldComponents[i] : 0
-            
-            if newValue > oldValue {
-                return true
-            } else if newValue < oldValue {
-                return false
-            }
-        }
-        
-        return false
-    }
-    
-    func refreshUpdateCount(
-        sources: [ASRepository],
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) {
-        Task {
-            await performUpdateCheck(sources: sources, signedApps: signedApps, importedApps: importedApps)
-        }
-    }
-    
-    @MainActor
-    private func performUpdateCheck(
-        sources: [ASRepository],
-        signedApps: FetchedResults<Signed>,
-        importedApps: FetchedResults<Imported>
-    ) async {
-        var updatesSet = Set<String>()
-        var uniqueApps = Set<String>()
+	func libraryApp(for update: AppUpdate) -> AppInfoPresentable? {
+		Storage.shared.app(withUuid: update.libraryUUID)
+	}
 
-        let ignored = SkippedUpdatesManager.shared.bundleIDs
+	func origin(for app: ASRepository.App, version: String? = nil) -> AppOrigin? {
+		// Open routes retain this listing even after its catalog is replaced.
+		guard let source = app.sourceIdentifier else { return nil }
+		return AppOrigin(source: source, appID: app.id, name: app.name, version: version ?? app.currentVersion)
+	}
 
-        for source in sources {
-            for app in source.apps {
-                if checkForUpdates(
-                    app: app,
-                    signedApps: signedApps,
-                    importedApps: importedApps
-                ), !ignored.contains(app.id ?? "") {
-                    updatesSet.insert(app.currentUniqueId)
+	// MARK: Actions
 
-                    if let installedApp = findInstalledApp(
-                        for: app,
-                        signedApps: signedApps,
-                        importedApps: importedApps
-                    ) {
-                        uniqueApps.insert(installedApp.uuid)
-                    }
-                }
-            }
-        }
-        
-        self.appsWithUpdates = updatesSet
-        self.updateCount = uniqueApps.count
-    }
+	func isAutomatic(_ update: AppUpdate) -> Bool {
+		let defaults = UserDefaults.standard
+		return update.isPinned
+			|| defaults.bool(forKey: Self.newestKey)
+			|| (update.candidates.count == 1 && defaults.object(forKey: Self.singleSourceKey) as? Bool ?? true)
+	}
+
+	@discardableResult
+	func autoUpdate(_ update: AppUpdate) -> Bool {
+		guard isAutomatic(update) else { return false }
+		DownloadManager.shared.startDownload(for: update.best.app)
+		return true
+	}
+
+	func pin(_ candidate: AppUpdate.Candidate?, for key: String) {
+		pins[key] = candidate.map {
+			AppOrigin(source: $0.sourceID, appID: $0.app.id, name: $0.app.name, version: nil)
+		}
+		UserDefaults.standard.set(try? JSONEncoder().encode(pins), forKey: Self._pinsKey)
+		_trigger.send()
+	}
+
+	func isPinned(_ candidate: AppUpdate.Candidate, for key: String) -> Bool {
+		pins[key].map(candidate.matches) ?? false
+	}
+
+	// MARK: Compute
+
+	private func _recompute() {
+		let sources = SourcesViewModel.shared.sources.compactMap { source, repo in
+			source.identifier.map { SourceSnapshot(id: $0, name: source.name ?? repo.name ?? "", repository: repo) }
+		}
+		let origins = AppOrigins.shared.all
+		let storage = Storage.shared
+		let apps: [AppInfoPresentable]
+		do {
+			try storage.requireReady()
+			// getAllApps suppresses individual fetch failures; pruning needs a complete snapshot.
+			let signed = try storage.context.fetch(Signed.fetchRequest())
+			let imported = try storage.context.fetch(Imported.fetchRequest())
+			apps = signed.map { $0 as AppInfoPresentable } + imported.map { $0 as AppInfoPresentable }
+		} catch {
+			_task?.cancel()
+			Logger.misc.error("Update check could not read the library: \(error.localizedDescription)")
+			return
+		}
+		let library = apps.compactMap { LibraryEntry($0, origins: origins) }
+
+		if !_didPrune, !storage.context.hasChanges {
+			_didPrune = true
+			// Missing version/identifier excludes an app from updates, not from origin retention.
+			AppOrigins.shared.prune(keeping: Set(apps.compactMap(\.uuid)))
+		}
+
+		let input = Input(sources: sources, library: library, ignored: SkippedUpdatesManager.shared.bundleIDs, pins: pins)
+		_task?.cancel()
+		_task = Task {
+			let result = await Task.detached(priority: .utility) { Self._compute(input) }.value
+			guard !Task.isCancelled else { return }
+			libraryKeys = result.libraryKeys
+			_byLibraryUUID = result.updates.reduce(into: [:]) { map, update in
+				for uuid in update.libraryUUIDs { map[uuid] = update }
+			}
+			updates = result.updates
+		}
+	}
+
+	private static func _touchesLibrary(_ note: Notification) -> Bool {
+		[NSInsertedObjectsKey, NSDeletedObjectsKey, NSUpdatedObjectsKey].contains { key in
+			(note.userInfo?[key] as? Set<NSManagedObject>)?.contains { $0 is Signed || $0 is Imported } == true
+		}
+	}
+
+	private struct SourceSnapshot: Sendable {
+		let id: String
+		let name: String
+		let repository: ASRepository
+	}
+
+	private struct LibraryEntry: Sendable {
+		let uuid: String
+		let key: String
+		let name: String
+		let version: String
+		let origin: AppOrigin?
+
+		var installedVersion: String { origin?.version ?? version }
+
+		init?(_ app: AppInfoPresentable, origins: [String: AppOrigin]) {
+			guard let uuid = app.uuid,
+				let key = app.originalIdentifier ?? app.identifier, !key.isEmpty,
+				let version = app.version
+			else { return nil }
+			self.uuid = uuid
+			self.key = key
+			self.name = app.name ?? key
+			self.version = version
+			self.origin = origins[uuid]
+		}
+	}
+
+	private struct Input: Sendable {
+		let sources: [SourceSnapshot]
+		let library: [LibraryEntry]
+		let ignored: Set<String>
+		let pins: [String: AppOrigin]
+	}
+
+	private struct Output: Sendable {
+		let updates: [AppUpdate]
+		let libraryKeys: Set<String>
+	}
+
+	private struct Group {
+		let key: String
+		let entries: [LibraryEntry]
+		let top: LibraryEntry
+		var candidates: [AppUpdate.Candidate] = []
+	}
+
+	nonisolated private static func _compute(_ input: Input) -> Output {
+		var groups: [String: Group] = Dictionary(grouping: input.library, by: \.key).mapValues { entries in
+			let top = entries.max { isNewerVersion($1.installedVersion, than: $0.installedVersion) }!
+			return Group(key: top.key, entries: entries, top: top)
+		}
+		var keysByAppID: [String: [String]] = [:]
+		for group in groups.values {
+			for id in Set([group.key] + group.entries.compactMap(\.origin?.appID)) {
+				keysByAppID[id, default: []].append(group.key)
+			}
+		}
+		for source in input.sources {
+			for app in source.repository.apps {
+				guard let keys = app.id.flatMap({ keysByAppID[$0] }) else { continue }
+				let candidate = AppUpdate.Candidate(sourceID: source.id, sourceName: source.name, repository: source.repository, app: app)
+				for key in keys { groups[key]?.candidates.append(candidate) }
+			}
+		}
+		let updates = groups.values.compactMap { group -> AppUpdate? in
+			let ignored = input.ignored.contains(group.key) || group.entries.contains { $0.origin?.appID.map(input.ignored.contains) == true }
+			guard !ignored else { return nil }
+			var seen: Set<String> = []
+			var candidates = group.candidates
+				.filter { isNewerVersion($0.version, than: group.top.installedVersion) && seen.insert($0.id).inserted }
+				.sorted(by: _isPreferred)
+			let pin = input.pins[group.key]
+			let pinnedExists = pin.map { pin in group.candidates.contains { $0.matches(pin) } } ?? false
+			if let pin, pinnedExists {
+				guard let index = candidates.firstIndex(where: { $0.matches(pin) }) else { return nil }
+				candidates.insert(candidates.remove(at: index), at: 0)
+			}
+			guard !candidates.isEmpty else { return nil }
+			return AppUpdate(
+				id: group.key, name: group.top.name, installedVersion: group.top.installedVersion,
+				libraryUUID: group.top.uuid, libraryUUIDs: group.entries.map(\.uuid),
+				candidates: candidates, isPinned: pinnedExists
+			)
+		}
+		.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+		return Output(updates: updates, libraryKeys: Set(groups.keys))
+	}
+
+	nonisolated private static func _isPreferred(_ lhs: AppUpdate.Candidate, _ rhs: AppUpdate.Candidate) -> Bool {
+		if isNewerVersion(lhs.version, than: rhs.version) { return true }
+		if isNewerVersion(rhs.version, than: lhs.version) { return false }
+		return (lhs.app.currentDate?.date ?? .distantPast) > (rhs.app.currentDate?.date ?? .distantPast)
+	}
+
+	// MARK: Versions
+
+	// "1.2 (tweak 3.0)" reads as 1.2.
+	nonisolated static func isNewerVersion(_ new: String, than old: String) -> Bool {
+		let lhs = _components(new)
+		let rhs = _components(old)
+		for i in 0..<max(lhs.count, rhs.count) {
+			let a = i < lhs.count ? lhs[i] : 0
+			let b = i < rhs.count ? rhs[i] : 0
+			if a != b { return a > b }
+		}
+		return false
+	}
+
+	nonisolated private static func _components(_ version: String) -> [Int] {
+		version
+			.drop { !($0.isASCII && $0.isNumber) }
+			.prefix { ($0.isASCII && $0.isNumber) || $0 == "." }
+			.split(separator: ".")
+			.compactMap { Int($0) }
+	}
 }
