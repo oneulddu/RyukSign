@@ -59,6 +59,24 @@ extension FileManager {
 
 protocol AppInfoPresentable { var uuid: String { get } }
 struct Row: AppInfoPresentable { let uuid: String }
+struct AppOrigin: Equatable { let source: String }
+final class Download {
+ let origin = AppOrigin(source: "fixture-source")
+}
+final class AppOrigins: @unchecked Sendable {
+ static let shared = AppOrigins()
+ private let lock = NSLock()
+ private var values: [String: AppOrigin] = [:]
+ func set(_ origin: AppOrigin?, for uuid: String) {
+  precondition(Storage.shared.state(uuid).saved, "Origin recorded before successful save")
+  lock.lock(); defer { lock.unlock() }
+  values[uuid] = origin
+ }
+ func origin(for uuid: String) -> AppOrigin? {
+  lock.lock(); defer { lock.unlock() }
+  return values[uuid]
+ }
+}
 final class Storage: @unchecked Sendable {
  static let shared = Storage()
  private let lock = NSLock()
@@ -106,6 +124,7 @@ final class Handler: @unchecked Sendable {
  let _ipa: URL
  let _fileName: String
  let _appDescription: String? = "Fixture description"
+ let _download: Download? = Download()
  private var _didAddToDatabase = false
  var didAddToDatabase: Bool { _didAddToDatabase }
  let originalIPA: URL
@@ -151,6 +170,7 @@ final class Handler: @unchecked Sendable {
   let successState = Storage.shared.state("success")
   precondition(successState.completed && successState.saved && successState.readbacks == 1)
   precondition(row.uuid == "success" && success.didAddToDatabase)
+  precondition(AppOrigins.shared.origin(for: "success") == success._download?.origin)
   try await verifyCleanup(success, retainsPayload: true)
 
   let failure = try Handler("failure")
@@ -166,6 +186,7 @@ final class Handler: @unchecked Sendable {
   let failureState = Storage.shared.state("failure")
   precondition(failureState.completed && !failureState.saved && failureState.readbacks == 0)
   precondition(!failure.didAddToDatabase)
+  precondition(AppOrigins.shared.origin(for: "failure") == nil)
   try await verifyCleanup(failure, retainsPayload: false)
 
   // A successful save followed by failed readback is still registered: cleanup
@@ -182,6 +203,7 @@ final class Handler: @unchecked Sendable {
   let missingState = Storage.shared.state("missing-readback")
   precondition(missingState.completed && missingState.saved && missingState.readbacks == 1)
   precondition(missing.didAddToDatabase)
+  precondition(AppOrigins.shared.origin(for: "missing-readback") == missing._download?.origin)
   try await verifyCleanup(missing, retainsPayload: true)
   // Cleanup of another import must not remove a previously registered payload.
   precondition(FileManager.default.fileExists(atPath:

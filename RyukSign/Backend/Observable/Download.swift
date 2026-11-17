@@ -50,6 +50,7 @@ class Download: Identifiable, @unchecked Sendable {
 	let fileName: String
 	let onlyArchiving: Bool
 	let appDescription: String?
+	var origin: AppOrigin?
 
 	var isManual: Bool {
 		id.contains("FeatherManualDownload")

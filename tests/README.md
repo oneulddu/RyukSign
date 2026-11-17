@@ -8,6 +8,11 @@ Several are adapted from [KorSign a1dbd06](https://github.com/korboybeats/KorSig
 python3 tests/test_import_extraction_lifecycle.py
 python3 tests/test_import_database_lifecycle.py
 python3 tests/test_installation_archive.py
+python3 tests/test_install_queue.py
+python3 tests/test_source_updates.py
+python3 tests/test_source_cache.py
+python3 tests/test_source_ui_state.py
+python3 tests/test_app_group_removal.py
 python3 tests/test_storage.py
 python3 tests/test_signing_failure.py
 python3 tests/test_certificate_persistence.py
@@ -25,7 +30,17 @@ python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/che
 - Extraction: slow successful work, error forwarding, execution QoS, main-queue
   responsiveness, throttled progress, IPA/TIPA handling, and safe completion before cleanup.
 - Import database: delayed save completion, error propagation, and cleanup preserving
-  registered payloads and the original input.
+  registered payloads and the original input; source origins recorded only after a successful save.
+- Install queue: foreground resumption, stale delayed callbacks, failure progression and
+  reporting, failed status, fallback cleanup, and protection of queued apps.
+- Source updates: grouped matching, pinned sources, origins, unavailable/partial database
+  preservation, repository favorites, and blank-name fallback.
+- Source cache: loopback fetching, hydration and refresh, authenticated premium requests
+  bypassing disk caching, and preservation of displayed data on fetch failures.
+- Source UI state: filtered reorder protection, explicit-source routing, and combined-news
+  invalidation without rebuilding the app list. This does not render UIKit.
+- App Groups: opt-in entitlement removal, old-option decoding, preservation of unrelated
+  entitlements and keychain isolation, and no removal in modify-only mode.
 - Installation archive: producer/consumer lifetime, packaging failure, delayed pairing
   reads, stopped jobs, outstanding HTTP readers, asynchronous shutdown, export collisions,
   unsafe/long metadata, and export failure propagation. ZIP/HTTP/pairing are stubs.

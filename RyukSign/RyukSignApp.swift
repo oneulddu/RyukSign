@@ -54,6 +54,12 @@ struct RyukSignApp: App {
         if #available(iOS 19.0, *) {
             UserDefaults.standard.set(true, forKey: "com.apple.SwiftUI.IgnoreSolariumLinkedOnCheck")
         }
+
+        if #unavailable(iOS 26) {
+            let appearance = UITabBarAppearance()
+            appearance.configureWithDefaultBackground()
+            UITabBar.appearance().scrollEdgeAppearance = appearance
+        }
     }
     
     var body: some Scene {
@@ -110,10 +116,8 @@ struct RyukSignApp: App {
                 UIApplication.topViewController()?.view.window?.tintColor = UIColor(Color.userTint)
             }
             .onChange(of: scenePhase) { newPhase in
-                if newPhase == .active {
-                    Task { @MainActor in
-                        SourcesViewModel.shared.resetLoadingState()
-                    }
+                if newPhase == .active, UserDefaults.standard.object(forKey: AppUpdateChecker.launchCheckKey) as? Bool ?? true {
+                    Task { await SourcesViewModel.shared.refreshStale(Storage.shared.getSources()) }
                 }
             }
             .task {
@@ -222,7 +226,15 @@ struct RyukSignApp: App {
 				let fullPath = url.validatedScheme(after: "/install/"),
 				let downloadURL = URL(string: fullPath)
 			{
-				_ = DownloadManager.shared.startDownload(from: downloadURL)
+				UIAlertController.showAlertWithCancel(
+					title: .localized("Install"),
+					message: .localized("Do you want to download and install this file?") + "\n\n\(downloadURL)",
+					actions: [
+						UIAlertAction(title: .localized("Install"), style: .default) { _ in
+							_ = DownloadManager.shared.startDownload(from: downloadURL)
+						}
+					]
+				)
 			}
 		} else {
 			let ext = url.pathExtension.lowercased()

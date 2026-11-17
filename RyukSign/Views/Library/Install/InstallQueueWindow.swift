@@ -48,6 +48,10 @@ final class InstallQueueWindow {
 		_window = window
 	}
 
+	var presenter: UIViewController? {
+		UIApplication.topViewController(controller: _window?.rootViewController) ?? UIApplication.topViewController()
+	}
+
 	func teardown() {
 		DispatchQueue.main.async {
 			guard InstallQueue.shared.current == nil else { return }

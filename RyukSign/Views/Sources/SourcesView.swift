@@ -22,12 +22,16 @@ struct SourcesView: View {
 	@State private var _searchText = ""
 	@State private var _shouldNavigateToAllRepos = false
 	@State private var _activeIndividualSource: AltSource? = nil
+	@State private var _navigationSource: AltSource?
 	@State private var _isEditMode = false
 	@State private var _selectedSources: Set<AltSource> = []
 	@State private var _showDeleteConfirmation = false
 
 	@AppStorage("Feather.sourcesTabShowAllReposDirectly")
 	private var _sourcesTabShowAllReposDirectly: Bool = false
+	@AppStorage("RyukSign.sourcesSort") private var _sort: SourceSort = .name
+	@AppStorage("RyukSign.sourcesSortAscending") private var _sortAscending = true
+	@ObservedObject private var _favorites = SourceFavorites.shared
 
 	/// Sources not excluded from "All Repositories"
 	private var _nonExcludedSources: [AltSource] {
@@ -54,9 +58,19 @@ struct SourcesView: View {
 	var body: some View {
 		NBNavigationView(.localized("Sources")) {
 			mainContent
+				.navigationDestinationIfAvailable(item: $_navigationSource) { source in
+					SourceAppsView(
+						object: [source],
+						viewModel: viewModel,
+						onRefresh: { await viewModel.fetchSources(_sources, refresh: true) }
+					)
+				}
 		}
 		.task(id: Array(_sources)) {
 			await viewModel.fetchSources(_sources)
+		}
+		.onAppear {
+			handlePendingNavigation(appNavigationManager.pendingAppNavigation)
 		}
 		.onChange(of: appNavigationManager.pendingAppNavigation) { pendingNavigation in
 			handlePendingNavigation(pendingNavigation)
@@ -74,7 +88,7 @@ struct SourcesView: View {
 		.onChange(of: scenePhase) { newPhase in
 			if newPhase == .active {
 				Task {
-					await viewModel.fetchSources(_sources)
+					await viewModel.refreshStale(Array(_sources))
 				}
 			}
 		}
@@ -96,7 +110,8 @@ struct SourcesView: View {
 			viewModel: viewModel,
 			onRefresh: {
 				await self.viewModel.fetchSources(self._sources, refresh: true)
-			}
+			},
+			isSourcesRoot: true
 		)
 		.toolbar {
 			NBToolbarButton(
@@ -197,20 +212,49 @@ struct SourcesView: View {
 		)
 	}
 
+	private var _sortedSources: [AltSource] {
+		let sorted = _filteredSources.sorted { lhs, rhs in
+			switch _sort {
+			case .name:
+				return (lhs.name ?? "").localizedCaseInsensitiveCompare(rhs.name ?? "") == .orderedAscending
+			case .apps:
+				return (viewModel.sources[lhs]?.apps.count ?? 0) > (viewModel.sources[rhs]?.apps.count ?? 0)
+			case .added:
+				return (lhs.date ?? .distantPast) > (rhs.date ?? .distantPast)
+			}
+		}
+		return _sortAscending ? sorted : sorted.reversed()
+	}
+
 	@ViewBuilder
 	private var repositoriesSection: some View {
-		let sectionTitle = _isEditMode ? "\(_selectedSources.count) selected" : "\(_filteredSources.count)"
-		NBSection(
-			.localized("Repositories"),
-			secondary: sectionTitle
-		) {
-			ForEach(_filteredSources) { source in
-				if _isEditMode {
-					editModeRow(for: source)
-				} else {
-					normalModeRow(for: source)
-				}
+		let sources = _sortedSources
+		let favorites = sources.filter(_favorites.contains)
+		let others = sources.filter { !_favorites.contains($0) }
+
+		if !favorites.isEmpty {
+			NBSection(.localized("Favorites"), secondary: "\(favorites.count)") {
+				ForEach(favorites) { _row(for: $0) }
 			}
+		}
+
+		if !others.isEmpty {
+			let sectionTitle = _isEditMode ? "\(_selectedSources.count) selected" : "\(others.count)"
+			NBSection(
+				.localized("Repositories"),
+				secondary: sectionTitle
+			) {
+				ForEach(others) { _row(for: $0) }
+			}
+		}
+	}
+
+	@ViewBuilder
+	private func _row(for source: AltSource) -> some View {
+		if _isEditMode {
+			editModeRow(for: source)
+		} else {
+			normalModeRow(for: source)
 		}
 	}
 
@@ -278,17 +322,7 @@ struct SourcesView: View {
 	@ViewBuilder
 	private var emptyStateView: some View {
 		if _filteredSources.isEmpty {
-			NBContentUnavailable(
-				.localized("No Repositories"),
-				systemImage: "globe.desk.fill",
-				description: .localized("Get started by adding your first repository.")
-			) {
-				Button {
-					_isAddingPresenting = true
-				} label: {
-					NBButton(.localized("Add Source"), style: .text)
-				}
-			}
+			NoRepositoriesView { _isAddingPresenting = true }
 		}
 	}
 
@@ -329,13 +363,36 @@ struct SourcesView: View {
 				}
 				.disabled(_selectedSources.isEmpty)
 			} else {
-				Button {
-					_isAddingPresenting = true
-				} label: {
-					Image(systemName: "plus")
+				HStack {
+					_sortMenu
+					Button {
+						_isAddingPresenting = true
+					} label: {
+						Image(systemName: "plus")
+					}
+					.disabled(_addingSourceLoading)
 				}
-				.disabled(_addingSourceLoading)
 			}
+		}
+	}
+
+	private var _sortMenu: some View {
+		Menu {
+			Picker(.localized("Sort by"), selection: $_sort) {
+				ForEach(SourceSort.allCases, id: \.self) { option in
+					Label(option.title, systemImage: option.systemImage).tag(option)
+				}
+			}
+
+			SortOrderPicker(ascending: $_sortAscending)
+
+			Section {
+				Toggle(isOn: $_sourcesTabShowAllReposDirectly) {
+					Label(.localized("Show All Repos by Default"), systemImage: "square.stack")
+				}
+			}
+		} label: {
+			Image(systemName: "line.3.horizontal.decrease")
 		}
 	}
 
@@ -388,6 +445,12 @@ struct SourcesView: View {
 	private func handlePendingNavigation(_ pendingNavigation: AppNavigationManager.PendingAppNavigation?) {
 		guard let navigation = pendingNavigation else { return }
 
+		if let identifier = navigation.sourceIdentifier,
+		   let source = _sources.first(where: { $0.identifier == identifier }) {
+			_navigationSource = source
+			return
+		}
+
 		if let activeSource = _activeIndividualSource {
 			if let repository = viewModel.sources[activeSource],
 			   appExistsInRepository(appId: navigation.appId, repository: repository) {
@@ -416,5 +479,44 @@ struct SourcesView: View {
 			}
 		}
 		return false
+	}
+}
+
+struct NoRepositoriesView: View {
+	let onAdd: () -> Void
+
+	var body: some View {
+		NBContentUnavailable(
+			.localized("No Repositories"),
+			systemImage: "globe.desk.fill",
+			description: .localized("Get started by adding your first repository.")
+		) {
+			Button(action: onAdd) {
+				NBButton(.localized("Add Source"), style: .text)
+			}
+		}
+	}
+}
+
+// MARK: - Sort
+extension SourcesView {
+	enum SourceSort: String, CaseIterable {
+		case name, apps, added
+
+		var title: String {
+			switch self {
+			case .name: .localized("Name")
+			case .apps: .localized("App Count")
+			case .added: .localized("Date Added")
+			}
+		}
+
+		var systemImage: String {
+			switch self {
+			case .name: "textformat"
+			case .apps: "number"
+			case .added: "calendar"
+			}
+		}
 	}
 }

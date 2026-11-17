@@ -20,11 +20,12 @@ enum InstallCleanup {
 		_pending.append(uuid)
 	}
 
-	/// Only safe once the install UI is gone.
+	/// Queued apps remain pending until their install UI releases them.
 	static func flush() {
-		let uuids = _pending
+		let shown = Set(InstallQueue.shared.apps.compactMap(\.base.uuid))
+		let uuids = _pending.filter { !shown.contains($0) }
 		guard !uuids.isEmpty else { return }
-		_pending = []
+		defer { _pending = _pending.filter(shown.contains) }
 
 		let defaults = UserDefaults.standard
 

@@ -142,6 +142,8 @@ public struct ASRepository: Sendable, Decodable, Hashable, Identifiable {
 extension ASRepository {
 	public struct App: Sendable, Decodable, Hashable, Identifiable {
 		public var uuid = UUID()
+		// Runtime provenance assigned by the source loader, never decoded from catalog JSON.
+		public var sourceIdentifier: String? = nil
 		
 		public var id: String?
 		public var name: String?
@@ -359,9 +361,9 @@ extension ASRepository {
 		}
 		
 		public var currentName: String {
-			var name = name ?? "Unknown"
-			// additional check for blank names
-			if name.isEmpty { name = "Unknown" }
+			var name = [name, id]
+				.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+				.first { !$0.isEmpty } ?? "Unknown"
 			
 			if let id, id.hasSuffix("Beta") {
 				name += " (BETA)"

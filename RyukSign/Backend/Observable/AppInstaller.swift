@@ -23,8 +23,7 @@ final class AppInstaller: ObservableObject {
 	let app: AppInfoPresentable
 	let viewModel: InstallerStatusViewModel
 
-	/// redirect page fallback.
-	@Published var isPresentingFallbackPage = false
+	@Published var fallbackPage: URL?
 
 	private let _isSharing: Bool
 	private let _installationMethod = UserDefaults.standard.integer(forKey: "Feather.installationMethod")
@@ -38,8 +37,6 @@ final class AppInstaller: ObservableObject {
 	private var _hasFinished = false
 	private var _declineObserver: NSObjectProtocol?
 	private var _declineCheck: DispatchWorkItem?
-
-	var fallbackPageURL: URL? { _server?.pageEndpoint }
 
 	init(app: AppInfoPresentable, isSharing: Bool = false) {
 		self.app = app
@@ -77,6 +74,7 @@ final class AppInstaller: ObservableObject {
 	func stop() {
 		_hasFinished = true
 		_completion = nil
+		fallbackPage = nil
 		_server?.stop()
 		_disarmDeclineWatch()
 		_statusObserver = nil
@@ -166,10 +164,10 @@ final class AppInstaller: ObservableObject {
 		case .sendingManifest:
 			_armDeclineWatch()
 		case .sendingPayload:
-			isPresentingFallbackPage = false
+			fallbackPage = nil
 			_disarmDeclineWatch()
 		case .installing where _installationMethod == 0:
-			isPresentingFallbackPage = false
+			fallbackPage = nil
 			_disarmDeclineWatch()
 			_startProgressPolling()
 		case .completed(let result):
@@ -195,11 +193,12 @@ final class AppInstaller: ObservableObject {
 		FileLogger.log("opening \(link)", category: "install")
 
 		UIApplication.shared.open(url) { [weak self] opened in
+			guard let self, !self._hasFinished else { return }
 			FileLogger.log("itms-services accepted by iOS: \(opened)", category: "install")
 
 			if !opened {
 				FileLogger.error("iOS refused the scheme, falling back to the redirect page", category: "install")
-				self?.isPresentingFallbackPage = true
+				self.fallbackPage = self._server?.pageEndpoint
 			}
 		}
 	}
@@ -249,6 +248,11 @@ final class AppInstaller: ObservableObject {
 		_progressTask = nil
 		_server?.stop()
 		_statusObserver = nil
+		fallbackPage = nil
+
+		if case .failure(let error) = result, !viewModel.isFailed {
+			viewModel.status = .broken(error)
+		}
 
 		let completion = _completion
 		_completion = nil

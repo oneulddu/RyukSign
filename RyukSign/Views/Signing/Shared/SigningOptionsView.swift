@@ -42,6 +42,18 @@ struct SigningOptionsView: View {
 			Text(.localized("Replaces wildcard keychain groups with the app's bundle identifier, preventing sideloaded apps from accessing each other's keychain entries."))
 		}
 
+		NBSection(.localized("App Groups")) {
+			_toggle(
+				.localized("Remove App Groups"),
+				systemImage: "square.stack.3d.up.slash",
+				isOn: $options.removeAppGroups,
+				temporaryValue: temporaryOptions?.removeAppGroups
+			)
+			.disabled(options.signingOption == .onlyModify)
+		} footer: {
+			Text(.localized("Signs without App Group entitlements. Shared data, widgets, and extensions may stop working. This option has no effect when modifying without signing."))
+		}
+
 		NBSection(.localized("General")) {
 			Self.picker(
 				.localized("Appearance"),
