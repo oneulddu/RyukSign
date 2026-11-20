@@ -110,6 +110,10 @@ final class HeaderPolicy {
         require(!navigation._shouldNavigateToAllRepos,
                 "Explicit excluded source must not route into filtered All Repositories")
         navigation._navigationSource = nil
+        navigation._activeIndividualSource = excluded
+        navigation.navigate(.init(sourceIdentifier: "excluded-source", appId: "same.app"))
+        require(navigation._navigationSource == nil && !navigation._shouldNavigateToAllRepos,
+                "A source that is already open handles its own request without a second push")
         navigation._activeIndividualSource = nil
         navigation.navigate(.init(sourceIdentifier: nil, appId: "same.app"))
         require(navigation._shouldNavigateToAllRepos,

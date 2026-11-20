@@ -28,6 +28,10 @@ with tempfile.TemporaryDirectory(prefix='ryuksign-macho-check-') as temporary:
     driver.write_text('''#import "MachOUtils.h"
 int main(int argc, const char **argv) {
     @autoreleasepool {
+        if (argv[1][0] == 'd') {
+            puts(LCPatchMachOForIPhoneDuo(argv[2]).UTF8String);
+            return 0;
+        }
         NSString *error = argv[1][0] == 's' ? LCPatchMachOForSDK26(argv[2]) : LCPatchMachOFixupARM64eSlice(argv[2]);
         if (error) { fprintf(stderr, "%s\\n", error.UTF8String); return 1; }
         return 0;
@@ -51,11 +55,23 @@ int main(int argc, const char **argv) {
         assert b'Sanitizer' not in result.stderr and b'runtime error:' not in result.stderr, result.stderr
         assert target.read_bytes() == (data if expected is None else expected)
         assert target.stat().st_mode & 0o777 == 0o755
+        return result.stdout
 
     valid = thin()
     patched = bytearray(valid)
     struct.pack_into('<I', patched, 32 + 16, 0x1a0000)
     run(valid, 'sdk', bytes(patched))
+    # The legacy version-min command stores the SDK after the minimum OS.
+    def legacy(sdk):
+        return thin(struct.pack('<4I', 0x25, 16, 0x0c0000, sdk))
+    run(legacy(0x110000), 'sdk', legacy(0x1a0000))
+    newer = thin(struct.pack('<6I', 0x32, 24, 2, 0x100000, 0x1c0000, 0))
+    duo = fat([legacy(0x110000), newer])
+    expected_duo = fat([legacy(0x1b0100), newer])
+    run(duo, 'duo', expected_duo)
+    # Duo returns a diagnostic string, not a nullable error; no slice may change on failure.
+    broken = fat([legacy(0x110000), thin(struct.pack('<2I', 0x25, 8))])
+    assert b'Truncated version-min command' in run(broken, 'duo', broken)
     run(valid, 'arm', valid)  # Thin binaries are not ARM64e slice-fix targets.
     no_build = thin(b'', count=0)
     run(no_build, 'sdk', no_build)
@@ -120,6 +136,7 @@ struct Bundle {
 var paths: [String] = []
 var failure: String? = nil
 func LCPatchMachOForSDK26(_ path: String) -> String? { paths.append(path); return failure }
+func LCPatchMachOForIPhoneDuo(_ path: String) -> String { paths.append(path); return failure ?? "SDK updated" }
 func LCPatchMachOFixupARM64eSlice(_ path: String) -> String? { paths.append(path); return failure }
 final class SigningLog {
     static let shared = SigningLog()
@@ -155,6 +172,11 @@ final class Handler {
         SigningLog.shared.lines = []
         try await handler._locateMachosAndChangeToSDK26(for: app)
         assert(SigningLog.shared.lines == ["Mach-O patch skipped for binary: Invalid native input"])
+        paths = []
+        SigningLog.shared.lines = []
+        try await handler._locateMachosAndChangeForIPhoneDuo(for: app)
+        assert(paths == [app.appendingPathComponent("binary").path])
+        assert(SigningLog.shared.lines == ["Invalid native input"])
         print("PASS: production Swift callers log native failures, continue signing and use the executable path directly")
     }
 }

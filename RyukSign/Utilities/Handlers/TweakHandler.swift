@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import ZsignSwift
+import Zsign
 import OSLog
 
 class TweakHandler {
@@ -44,6 +44,48 @@ class TweakHandler {
 			return nil
 		}
 		return url
+	}
+
+	// Unlike optional tweaks, the guard must load, including in newly placed
+	// extensions. Run last, after all placements and requested dylib removals.
+	func injectSandboxEscapeGuard() throws {
+		guard let guardURL = Bundle.main.url(forResource: "SandboxEscapeBlock", withExtension: "dylib") else {
+			throw SigningValidationError("Block Sandbox Escape: bundled SandboxEscapeBlock.dylib is unavailable.")
+		}
+		let root = _app.resolvingSymlinksInPath().standardizedFileURL
+		let directory = _options.injectFolder == .frameworks ? root.appendingPathComponent("Frameworks") : root
+		let resolvedDirectory = directory.resolvingSymlinksInPath().standardizedFileURL
+		guard resolvedDirectory.path == root.path || resolvedDirectory.path.hasPrefix(root.path + "/") else {
+			throw SigningValidationError("Block Sandbox Escape: guard destination is outside the app.")
+		}
+		try _fileManager.createDirectoryIfNeeded(at: resolvedDirectory)
+		let library = _uniqueDylibDestination(resolvedDirectory.appendingPathComponent(guardURL.lastPathComponent))
+		try _fileManager.copyItem(at: guardURL, to: library)
+		func inject(into bundle: URL) throws {
+			let executable = try SigningBundleFiles.executable(in: bundle)
+			let parent = executable.deletingLastPathComponent()
+			guard parent.path == root.path || parent.path.hasPrefix(root.path + "/") else {
+				throw SigningValidationError("Block Sandbox Escape: \(bundle.lastPathComponent) is outside the app.")
+			}
+			// Resolve against the image itself, without relying on target-specific rpaths.
+			let up = String(repeating: "../", count: parent.pathComponents.count - root.pathComponents.count)
+			let relative = library.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
+			guard Zsign.injectDyLib(appExecutable: executable.path, with: "@loader_path/\(up)\(relative)", weak: false) else {
+				throw SigningValidationError("Block Sandbox Escape: could not inject the guard into \(bundle.lastPathComponent).")
+			}
+		}
+		try inject(into: root)
+		// A Watch companion and other embedded apps deploy separately from this dylib.
+		for extensionURL in _discoverAppExtensions() {
+			try inject(into: extensionURL)
+		}
+		SigningLog.shared.info(.localized("Injected the sandbox escape guard"), category: "inject")
+	}
+
+	private func _stage(_ bundled: URL, in directory: URL) throws -> URL {
+		let staged = directory.appendingPathComponent(bundled.lastPathComponent)
+		try _fileManager.copyItem(at: bundled, to: staged)
+		return staged
 	}
 
 	/// `Frameworks/` can be absent from apps, so the parent has to exist before the move.
@@ -125,9 +167,7 @@ class TweakHandler {
 		try _fileManager.createDirectoryIfNeeded(at: baseTmpDir)
 
 		if let filePickerFix {
-			let staged = baseTmpDir.appendingPathComponent(filePickerFix.lastPathComponent)
-			try _fileManager.copyItem(at: filePickerFix, to: staged)
-			_urls.append(staged)
+			_urls.append(try _stage(filePickerFix, in: baseTmpDir))
 		}
 
 		// Legacy job: injectionFiles + ellekit, extensions only when injectIntoExtensions.

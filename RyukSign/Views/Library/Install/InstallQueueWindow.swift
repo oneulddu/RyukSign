@@ -40,6 +40,8 @@ final class InstallQueueWindow {
 
 		let window = InstallPassthroughWindow(windowScene: scene)
 		window.windowLevel = .alert
+		window.tintColor = UIColor(Color.userTint)
+		window.overrideUserInterfaceStyle = UIUserInterfaceStyle(rawValue: UserDefaults.standard.integer(forKey: "Feather.userInterfaceStyle")) ?? .unspecified
 		window.backgroundColor = .clear
 		window.isOpaque = false
 		window.rootViewController = host
@@ -93,7 +95,8 @@ private struct InstallQueueSheet: View {
 					.id(current.id)
 					.transition(.opacity)
 			} else {
-				Color(UIColor.secondarySystemBackground)
+				ProgressView()
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
 			}
 		}
 		.animation(.easeInOut(duration: 0.22), value: queue.index)

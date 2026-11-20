@@ -32,7 +32,12 @@ struct EntitlementValue { let value: Any }
 struct Profile { let Entitlements: [String: EntitlementValue] }
 final class Storage {
     static let shared = Storage()
-    func getProvisionFileDecoded(for cert: CertificatePair) -> Profile? { nil }
+    var profile: Profile?
+    func getProvisionFileDecoded(for cert: CertificatePair) -> Profile? { profile }
+}
+struct SigningValidationError: LocalizedError {
+    let errorDescription: String?
+    init(_ reason: String) { errorDescription = reason }
 }
 final class SigningLog {
     static let shared = SigningLog()
@@ -91,6 +96,24 @@ func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         enabled.removeAppGroups = true
         let roundTrip = try JSONDecoder().decode(Options.self, from: JSONEncoder().encode(enabled))
         try require(roundTrip.removeAppGroups, "Enabled option must persist")
+
+        let preparation = Preparation(work)
+        preparation._options.removeAppGroups = true
+        preparation.appCertificate = CertificatePair()
+        do {
+            try await preparation.prepare()
+            throw Failure(description: "Unreadable profile accepted")
+        } catch is SigningValidationError {}
+        Storage.shared.profile = Profile(Entitlements: ["get-task-allow": EntitlementValue(value: true)])
+        try await preparation.prepare()
+        try require(preparation._options.appEntitlementsFile == nil, "No groups should need no replacement")
+        let bad = work.appendingPathComponent("invalid.plist")
+        try Data("not a plist".utf8).write(to: bad)
+        preparation._options.appEntitlementsFile = bad
+        do {
+            try await preparation.prepare()
+            throw Failure(description: "Unreadable selected entitlements fell back to the profile")
+        } catch is SigningValidationError {}
 
         for (name, removal, isolation, modifyOnly) in [
             ("off", false, false, false),

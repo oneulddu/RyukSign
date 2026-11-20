@@ -44,6 +44,12 @@ class Download: Identifiable, @unchecked Sendable {
 	/// Owned by this Download instance, so same-named downloads never replace each other.
 	let stagingDirectory = FileManager.default.downloadStaging
 		.appendingPathComponent(UUID().uuidString, isDirectory: true)
+	private let stagingLock = NSLock()
+	private var cancelled = false
+	var isCancelled: Bool {
+		get { stagingLock.withLock { cancelled } }
+		set { stagingLock.withLock { cancelled = newValue } }
+	}
 	
 	let id: String
 	let url: URL
@@ -51,6 +57,7 @@ class Download: Identifiable, @unchecked Sendable {
 	let onlyArchiving: Bool
 	let appDescription: String?
 	var origin: AppOrigin?
+	var action: AutoSignManager.Action?
 
 	var isManual: Bool {
 		id.contains("FeatherManualDownload")
@@ -72,6 +79,10 @@ class Download: Identifiable, @unchecked Sendable {
 
 	/// Moves a finished URLSession file into this download's own staging directory (from KorSign).
 	func stageFile(at location: URL, suggestedFilename: String?) throws -> URL {
+		// A delegate may already hold this owner after Stop All removes it.
+		stagingLock.lock()
+		defer { stagingLock.unlock() }
+		guard !cancelled else { throw CancellationError() }
 		let fm = FileManager.default
 		let name = ((suggestedFilename ?? fileName).replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent
 		let safeName = name.isEmpty || name == "." || name == ".." ? "download.ipa" : name
@@ -83,7 +94,9 @@ class Download: Identifiable, @unchecked Sendable {
 
 	/// Imports copy the staged file first, so it is no longer needed once they end.
 	func removeStagedFiles() {
-		try? FileManager.default.removeItem(at: stagingDirectory)
+		stagingLock.withLock {
+			try? FileManager.default.removeItem(at: stagingDirectory)
+		}
 	}
 
 	func beginImport() {

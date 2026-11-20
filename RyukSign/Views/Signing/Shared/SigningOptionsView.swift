@@ -14,7 +14,6 @@ struct SigningOptionsView: View {
 	var temporaryOptions: Options?
 
 	@AppStorage(AutoSignManager.enabledKey) private var _autoSign: Bool = false
-	@AppStorage(InstallCleanup.deleteKey) private var _deleteAfterInstall: Bool = false
 	
 	// MARK: Body
 	var body: some View {
@@ -42,7 +41,14 @@ struct SigningOptionsView: View {
 			Text(.localized("Replaces wildcard keychain groups with the app's bundle identifier, preventing sideloaded apps from accessing each other's keychain entries."))
 		}
 
-		NBSection(.localized("App Groups")) {
+		NBSection(.localized("Sandbox Escape")) {
+			_toggle(
+				.localized("Block Sandbox Escape"),
+				systemImage: "lock.shield",
+				isOn: $options.blockSandboxEscape,
+				temporaryValue: temporaryOptions?.blockSandboxEscape
+			)
+
 			_toggle(
 				.localized("Remove App Groups"),
 				systemImage: "square.stack.3d.up.slash",
@@ -51,7 +57,7 @@ struct SigningOptionsView: View {
 			)
 			.disabled(options.signingOption == .onlyModify)
 		} footer: {
-			Text(.localized("Signs without App Group entitlements. Shared data, widgets, and extensions may stop working. This option has no effect when modifying without signing."))
+			Text(.localized("Protects against the bad_query and worse_query exploits. The guard keeps App Groups working, but an app built to get around it still can. Removing App Groups fully blocks worse_query, but breaks widgets and extensions that share data."))
 		}
 
 		NBSection(.localized("General")) {
@@ -199,33 +205,24 @@ struct SigningOptionsView: View {
 		}
 
 		NBSection(.localized("Post Signing")) {
-            _toggle(
-                .localized("Install After Signing"),
-                systemImage: "arrow.down.circle",
-                isOn: $options.post_installAppAfterSigned,
-                temporaryValue: temporaryOptions?.post_installAppAfterSigned
-            )
 			_toggle(
-				.localized("Delete After Signing"),
-				systemImage: "trash",
-				isOn: $options.post_deleteAppAfterSigned,
-				temporaryValue: temporaryOptions?.post_deleteAppAfterSigned
+				.localized("Install After Signing"),
+				systemImage: "arrow.down.circle",
+				isOn: $options.post_installAppAfterSigned,
+				temporaryValue: temporaryOptions?.post_installAppAfterSigned
 			)
 
 			if temporaryOptions == nil {
-				_toggle(
-					.localized("Delete After Installing"),
-					systemImage: "trash.fill",
-					isOn: $_deleteAfterInstall
-				)
-			}
-		} footer: {
-			VStack(alignment: .leading, spacing: 6) {
-				Text(.localized("This will delete your imported application after signing, to save on using unneeded space."))
-
-				if temporaryOptions == nil {
-					Text(.localized("Delete After Installing drops the signed app from your library once it finishes installing. It stays installed on your device."))
+				NavigationLink(destination: AutoCleanupView()) {
+					Label(.localized("Automatic Cleanup"), systemImage: "sparkles")
 				}
+			} else {
+				_toggle(
+					.localized("Delete After Signing"),
+					systemImage: "trash",
+					isOn: $options.post_deleteAppAfterSigned,
+					temporaryValue: temporaryOptions?.post_deleteAppAfterSigned
+				)
 			}
 		}
 		
@@ -250,8 +247,18 @@ struct SigningOptionsView: View {
 				isOn: $options.experiment_supportLiquidGlass,
 				temporaryValue: temporaryOptions?.experiment_supportLiquidGlass
 			).disabled(options.experiment_disableLiquidGlass)
+
+			_toggle(
+				.localized("Enable iPhone Duo Support"),
+				systemImage: "rectangle.split.2x1",
+				isOn: $options.experiment_supportIPhoneDuo,
+				temporaryValue: temporaryOptions?.experiment_supportIPhoneDuo
+			)
 		} footer: {
-			Text(.localized("This option force converts apps to try to use the new liquid glass redesign iOS 26 introduced, this may not work for all applications due to differing frameworks."))
+			VStack(alignment: .leading, spacing: 6) {
+				Text(.localized("This option force converts apps to try to use the new liquid glass redesign iOS 26 introduced, this may not work for all applications due to differing frameworks."))
+				Text(.localized("iPhone Duo Support marks apps as built for iOS 27.1 so the unfolded iPhone Duo shows them full screen instead of in a phone-sized column. It also turns on Liquid Glass unless Disable Liquid Glass is on."))
+			}
 		}
 	}
 	

@@ -27,7 +27,7 @@ def source(name):
 
 # Substitute only the container/model location and defaults suite; keep actual load/save methods.
 storage = source("Storage.swift").replace("NSPersistentContainer(name: _name)", "makeContainer()").replace("UserDefaults.standard", "testDefaults")
-certificate = source("Storage+Certificate.swift").replace("import ZsignSwift", "")
+certificate = source("Storage+Certificate.swift").replace("import Zsign\n", "")
 # Network revocation and profile decoding are not part of this transaction test.
 certificate = certificate[:certificate.index("\n\tfunc revokagedCertificate")] + "\n}"
 program = r'''

@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Zsign
+import ZsignC
 import UIKit
 import OSLog
 
@@ -117,6 +117,12 @@ final class SigningHandler: NSObject {
 			try await _locateMachosAndChangeToSDK26(for: movedAppPath)
 		}
 
+		// Must run after Liquid Glass, which lowers the SDK to 26.0.
+		if _options.experiment_supportIPhoneDuo {
+			SigningLog.shared.info(.localized("Patching for iPhone Duo"))
+			try await _locateMachosAndChangeForIPhoneDuo(for: movedAppPath)
+		}
+
 		let hasTweakSpecs = !(_options.tweakInjections ?? []).filter { $0.enabled }.isEmpty
 		if _options.experiment_replaceSubstrateWithEllekit {
 			SigningLog.shared.info(.localized("Injecting tweaks"))
@@ -132,7 +138,7 @@ final class SigningHandler: NSObject {
 		try await _locateMachosAndFixupArm64eSlice(for: movedAppPath)
 
 		if _options.signingOption == .default, _options.removeAppGroups {
-			try _removeAppGroups()
+			try await _removeAppGroups()
 		}
 
 		if _options.keychainIsolation {
@@ -141,6 +147,9 @@ final class SigningHandler: NSObject {
 
 		let handler = ZsignHandler(appUrl: movedAppPath, options: _options, cert: appCertificate)
 		try await handler.disinject()
+		if _options.blockSandboxEscape {
+			try TweakHandler(app: movedAppPath, options: _options).injectSandboxEscapeGuard()
+		}
 		
 		if
 			_options.signingOption == .default,
@@ -199,7 +208,7 @@ final class SigningHandler: NSObject {
 			) { signed in
 				if case .success = signed {
 					AppOrigins.shared.copy(from: self._app.uuid, to: self._uuid)
-					Logger.signing.info("[\(self._uuid)] Added to database")
+					Logger.signing.info("[\(self._uuid)] Added to database (original ID: \(self._originalBundleIdentifier ?? "nil"), current ID: \(bundle?.bundleIdentifier ?? "nil"))")
 				}
 				continuation.resume(with: signed)
 			}
@@ -247,9 +256,13 @@ extension SigningHandler {
 		SigningLog.shared.info(.localized("Isolating keychain to %@", arguments: isolated.joined(separator: ", ")))
 	}
 
+	@MainActor
 	private func _removeAppGroups() throws {
 		let key = "com.apple.security.application-groups"
-		guard let entitlements = _baseEntitlements(), entitlements[key] != nil else { return }
+		guard let entitlements = _baseEntitlements(requireSelectedFile: true) else {
+			throw SigningValidationError("Cannot remove App Groups: the selected entitlements or provisioning profile could not be read.")
+		}
+		guard entitlements[key] != nil else { return }
 
 		entitlements.removeObject(forKey: key)
 		try _useEntitlements(entitlements)
@@ -262,12 +275,12 @@ extension SigningHandler {
 		let data = try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0)
 		try data.write(to: entitlementsURL)
 		_options.appEntitlementsFile = entitlementsURL
-
 	}
 
-	private func _baseEntitlements() -> NSMutableDictionary? {
-		if let file = _options.appEntitlementsFile, let dict = NSMutableDictionary(contentsOf: file) {
-			return dict
+	private func _baseEntitlements(requireSelectedFile: Bool = false) -> NSMutableDictionary? {
+		if let file = _options.appEntitlementsFile {
+			let dict = NSMutableDictionary(contentsOf: file)
+			if dict != nil || requireSelectedFile { return dict }
 		}
 		guard
 			let cert = appCertificate,
@@ -506,6 +519,12 @@ extension SigningHandler {
 	private func _locateMachosAndChangeToSDK26(for app: URL) async throws {
 		if let url = Bundle(url: app)?.executableURL {
 			_logMachOPatchFailure(LCPatchMachOForSDK26(url.path), at: url)
+		}
+	}
+
+	private func _locateMachosAndChangeForIPhoneDuo(for app: URL) async throws {
+		if let url = Bundle(url: app)?.executableURL {
+			SigningLog.shared.info(LCPatchMachOForIPhoneDuo(url.path))
 		}
 	}
 	

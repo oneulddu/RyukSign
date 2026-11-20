@@ -2,12 +2,15 @@
 //  SourceFavorites.swift
 //  RyukSign
 //
+//  Created by Ryuk
+//
 
 import Foundation
 import Combine
 
 final class SourceFavorites: ObservableObject {
 	static let shared = SourceFavorites()
+
 	private static let _key = "RyukSign.favoriteSources"
 
 	@Published private(set) var identifiers: Set<String>

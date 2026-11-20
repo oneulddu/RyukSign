@@ -14,13 +14,59 @@ import NIOTLS
 import SwiftUI
 import IDeviceSwift
 
+// Shared by Vapor event loops and the detached install watcher.
+final class PayloadReads: @unchecked Sendable {
+	private let lock = NSLock()
+	private var _readers = Set<String>()
+	private var _generation = 0
+	private var _idleSince: Date?
+	private var _closed = false
+
+	var idleWindow: (generation: Int, since: Date)? {
+		lock.withLock {
+			guard !_closed, _readers.isEmpty else { return nil }
+			return (_generation, _idleSince ?? Date())
+		}
+	}
+
+	// Choose between admitting a resumed GET and committing the install verdict
+	// under one lock: a snapshot alone leaves a race before stopping the server.
+	func claimInstallVerdict(generation: Int) -> Bool {
+		lock.withLock {
+			guard !_closed, _readers.isEmpty, _generation == generation else { return false }
+			_closed = true
+			return true
+		}
+	}
+
+	fileprivate func begin(_ requestID: String) -> Bool {
+		lock.withLock {
+			guard !_closed else { return false }
+			_generation += 1
+			_readers.insert(requestID)
+			return true
+		}
+	}
+
+	fileprivate func finish(_ requestID: String) -> Bool {
+		lock.withLock {
+			// A failed HTTP/1 body can report completion more than once.
+			guard _readers.remove(requestID) != nil, _readers.isEmpty else { return false }
+			_idleSince = Date()
+			return true
+		}
+	}
+
+	fileprivate func close() { lock.withLock { _closed = true } }
+}
+
 // MARK: - Class
 class ServerInstaller: Identifiable, ObservableObject {
 	let id = UUID()
 	let port = Int.random(in: 4000...8000)
+	let payloadReads = PayloadReads()
 	private var _needsShutdown = false
 	private var _acceptsUpdates = true
-
 	private let _packageLock = NSLock()
 	private var _package: InstallationArchive?
 	var package: InstallationArchive? {
@@ -115,17 +161,18 @@ class ServerInstaller: Identifiable, ObservableObject {
 					switch result {
 					case .success:
 						FileLogger.log("payload stream completed id=\(requestID)", category: "install")
-						self._updateStatus(.installing)
 					case .failure(let error):
-						FileLogger.error("payload stream failed id=\(requestID): \(error)", category: "install")
-						self._updateStatus(.broken(error))
+						// iOS drops and resumes long downloads, so the install watch decides the outcome.
+						FileLogger.error("payload stream ended early id=\(requestID): \(error)", category: "install")
 					}
+					if self.payloadReads.finish(requestID) { self._updateStatus(.installing) }
 				}
 				// IPAs are already ZIPs. Compressing HEAD's empty body advertises the
 				// compressed empty size instead of the IPA size, breaking iOS preflight.
 				response.headers.responseCompression = .disable
 				FileLogger.log("payload response id=\(requestID) HTTP \(response.status.code) bytes=\(response.headers.first(name: .contentLength) ?? "unknown")", category: "install")
 				if response.status == .ok || response.status == .partialContent {
+					guard self.payloadReads.begin(requestID) else { return Response(status: .notFound) }
 					self._updateStatus(.sendingPayload)
 				} else if response.status == .notModified {
 					// Cached bytes are available, but Vapor will not call stream completion.
@@ -169,6 +216,11 @@ class ServerInstaller: Identifiable, ObservableObject {
 			return status == 200 ? nil : Abort(.badGateway, reason: "Installation server health check returned HTTP \(status).")
 		} catch {
 			FileLogger.error("self check could not reach \(url.absoluteString): \(error.localizedDescription)", category: "install")
+			if LocalCertificate.isEnabled, !LocalCertificate.isTrusted {
+				return NSError(domain: "Install", code: -1, userInfo: [
+					NSLocalizedDescriptionKey: String.localized("The on-device certificate isn't trusted yet. Install its profile and turn on full trust in Settings › Installation.")
+				])
+			}
 			return error
 		}
 	}
@@ -176,6 +228,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 	/// Called on the main actor when a request finishes or the user stops it.
 	func stop() {
 		_acceptsUpdates = false
+		payloadReads.close()
 		backgroundTaskManager?.stop()
 		backgroundTaskManager = nil
 		_shutdownServer()
@@ -200,18 +253,18 @@ class ServerInstaller: Identifiable, ObservableObject {
 	private func _updateStatus(_ newStatus: InstallerStatusViewModel.InstallerStatus) {
 		DispatchQueue.main.async {
 			guard self._acceptsUpdates else { return }
-			if case .sendingManifest = newStatus, self.backgroundTaskManager == nil {
-				self.backgroundTaskManager = BackgroundTaskManager(
-					taskName: "ServerInstaller", expirationTitle: "Installation continuing",
-					expirationBody: "Keep the app open to complete the installation")
-				self.backgroundTaskManager?.start()
-			}
 			switch self.viewModel.status {
 			case .completed, .broken: return
 			case .sendingPayload, .installing:
 				if case .sendingManifest = newStatus { return }
 				if case .installing = self.viewModel.status, case .sendingPayload = newStatus { return }
 			default: break
+			}
+			if case .sendingManifest = newStatus, self.backgroundTaskManager == nil {
+				self.backgroundTaskManager = BackgroundTaskManager(
+					taskName: "ServerInstaller", expirationTitle: "Installation continuing",
+					expirationBody: "Keep the app open to complete the installation")
+				self.backgroundTaskManager?.start()
 			}
 			self.viewModel.status = newStatus
 		}

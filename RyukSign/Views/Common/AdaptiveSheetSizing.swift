@@ -17,9 +17,10 @@ extension View {
 private struct AdaptiveSheetSizing: ViewModifier {
 	let detents: Set<PresentationDetent>
 
+	// A sheet's own size class is always compact, even on the unfolded Duo.
 	@ViewBuilder
 	func body(content: Content) -> some View {
-		if UIDevice.current.userInterfaceIdiom == .pad {
+		if UIDevice.current.userInterfaceIdiom == .pad || DuoDisplay.isUnfolded() {
 			if #available(iOS 18, *) {
 				content.presentationSizing(.page)
 			} else {

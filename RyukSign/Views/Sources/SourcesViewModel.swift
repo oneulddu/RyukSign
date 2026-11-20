@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 import AltSourceKit
 import SwiftUI
 import NimbleJSON
@@ -30,6 +31,8 @@ final class SourcesViewModel: ObservableObject {
 	private var backgroundTaskManager: BackgroundTaskManager?
 	// Context of successfully loaded premium data; credentials never leave memory.
 	private var premiumHeaders: [AltSource: [String: String]] = [:]
+	private var premiumGeneration = 0
+	private var premiumObserver: AnyCancellable?
 
 	@MainActor
 	private func repository(_ repository: ASRepository, attributedTo source: AltSource) -> ASRepository {
@@ -42,7 +45,7 @@ final class SourcesViewModel: ObservableObject {
 
 	@MainActor
 	private func hasCurrentAuthentication(_ source: AltSource) -> Bool {
-		guard let url = source.sourceURL, RyukSignAPI.isPremiumSource(url) else { return true }
+		guard let url = source.sourceURL, RyukSignAPI.isPremiumSource(url) else { return premiumHeaders[source] == nil }
 		return premiumHeaders[source] == RyukSignAPI.authHeaders(for: url)
 	}
 
@@ -74,6 +77,16 @@ final class SourcesViewModel: ObservableObject {
 
 	@MainActor
 	func fetchSources(_ sourcesArray: [AltSource], refresh: Bool = false, batchSize: Int = 4) async {
+		if premiumObserver == nil {
+			premiumObserver = PremiumManager.shared.$isActive.removeDuplicates().dropFirst().sink { [weak self] active in
+				guard let self, !active else { return }
+				// Reset can unregister the host without rotating the device credential.
+				self.premiumGeneration += 1
+				self.sources = self.sources.filter { self.premiumHeaders[$0.key] == nil }
+				self.premiumHeaders.removeAll()
+				self.lastLoadedKey = nil
+			}
+		}
 		// Discard another account's data before waiting for an older request to finish.
 		var visible = sources
 		publish(&visible)
@@ -143,6 +156,7 @@ final class SourcesViewModel: ObservableObject {
 		Logger.misc.info("fetchSources START: \(items.count, privacy: .public) sources")
 
 		let service = _dataService
+		let generation = premiumGeneration
 		// Publish into a working copy cumulatively so `sources` is never blanked mid-load.
 		var working: [AltSource: ASRepository] = [:]
 		let cacheEnabled = SourceCache.isEnabled
@@ -152,6 +166,7 @@ final class SourcesViewModel: ObservableObject {
 		publish(&working)
 
 		if cacheEnabled {
+			// Small sources shouldn't wait on huge catalogs.
 			await withTaskGroup(of: (index: Int, date: Date, repo: ASRepository)?.self) { group in
 				for (index, item) in items.enumerated() where !item.isPremium {
 					let url = item.url
@@ -166,6 +181,7 @@ final class SourcesViewModel: ObservableObject {
 					guard let hit else { continue }
 					let source = items[hit.index].source
 					items[hit.index].cachedAt = hit.date
+					working = sources
 					if working[source] == nil {
 						working[source] = repository(hit.repo, attributedTo: source)
 						publish(&working)
@@ -218,10 +234,13 @@ final class SourcesViewModel: ObservableObject {
 				return collected
 			}
 
+			working = sources
 			for (idx, repo) in fetched {
 				let item = items[idx]
 				if item.isPremium {
-					guard item.source.sourceURL.map({ RyukSignAPI.authHeaders(for: $0) }) == item.headers else {
+					guard generation == premiumGeneration,
+						let url = item.source.sourceURL, RyukSignAPI.isPremiumSource(url),
+						RyukSignAPI.authHeaders(for: url) == item.headers else {
 						working.removeValue(forKey: item.source)
 						premiumHeaders.removeValue(forKey: item.source)
 						continue
@@ -233,7 +252,6 @@ final class SourcesViewModel: ObservableObject {
 				}
 			}
 
-			// Publish progress (grows, never empties).
 			publish(&working)
 		}
 

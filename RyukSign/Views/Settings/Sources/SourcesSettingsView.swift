@@ -18,6 +18,7 @@ struct SourcesSettingsView: View {
 	@AppStorage("RyukSign.libraryShowsUpdates") private var _libraryShowsUpdates = true
 	@AppStorage(AppUpdateChecker.singleSourceKey) private var _singleSourceDirectly = true
 	@AppStorage(AppUpdateChecker.groupKey) private var _groupsByApp = true
+	@AppStorage(AppUpdateChecker.updateAllKey) private var _showsUpdateAll = true
 	@AppStorage(AppUpdateChecker.launchCheckKey) private var _checksOnLaunch = true
 
 	@State private var _cacheSize: Int64 = 0
@@ -36,6 +37,7 @@ struct SourcesSettingsView: View {
 				}
 				Toggle(.localized("Skip Choice for One Source"), isOn: $_singleSourceDirectly)
 				Toggle(.localized("Group by App"), isOn: $_groupsByApp)
+				Toggle(.localized("Show Update All"), isOn: $_showsUpdateAll)
 				Toggle(.localized("Show in Library"), isOn: $_libraryShowsUpdates)
 				Toggle(.localized("Check on Launch"), isOn: $_checksOnLaunch)
 				NavigationLink(destination: IgnoredUpdatesView()) {
@@ -46,7 +48,7 @@ struct SourcesSettingsView: View {
 			}
 
 			NBSection(.localized("Cache")) {
-				Toggle(.localized("Cache Sources"), isOn: $_cacheEnabled)
+				Toggle(.localized("Keep Sources Offline"), isOn: $_cacheEnabled)
 
 				if _cacheEnabled {
 					Picker(.localized("Refresh"), selection: $_refresh) {
@@ -69,7 +71,9 @@ struct SourcesSettingsView: View {
 				}
 				.disabled(_cacheSize == 0)
 			} footer: {
-				Text(.localized("Sources open from the last saved copy and refresh in the background. Premium sources are never cached and always load from the network with your account."))
+				Text(.localized("Sources open instantly from the last copy and refresh in the background."))
+					+ Text(verbatim: " ")
+					+ Text(.localized("Premium sources are never saved and always load from the network."))
 			}
 		}
 		.task(id: _cacheEnabled) {

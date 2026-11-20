@@ -38,9 +38,13 @@ struct AppUpdate: Identifiable, Sendable {
 		let scoped = candidates.filter { sourceIDs.contains($0.sourceID) }
 		guard !scoped.isEmpty else { return nil }
 		return AppUpdate(
-			id: id, name: name, installedVersion: installedVersion,
-			libraryUUID: libraryUUID, libraryUUIDs: libraryUUIDs,
-			candidates: scoped, isPinned: isPinned && scoped[0].id == best.id
+			id: id,
+			name: name,
+			installedVersion: installedVersion,
+			libraryUUID: libraryUUID,
+			libraryUUIDs: libraryUUIDs,
+			candidates: scoped,
+			isPinned: isPinned && scoped[0].id == best.id
 		)
 	}
 }
@@ -52,6 +56,7 @@ final class AppUpdateChecker: ObservableObject {
 	static let singleSourceKey = "RyukSign.updateSingleSourceDirectly"
 	static let launchCheckKey = "RyukSign.checkUpdatesOnLaunch"
 	static let groupKey = "RyukSign.groupUpdatesByApp"
+	static let updateAllKey = "RyukSign.showsUpdateAll"
 
 	@Published private(set) var updates: [AppUpdate] = []
 	@Published private(set) var pins: [String: AppOrigin]
@@ -62,6 +67,7 @@ final class AppUpdateChecker: ObservableObject {
 	private var _task: Task<Void, Never>?
 	private var _cancellables = Set<AnyCancellable>()
 	private let _trigger = PassthroughSubject<Void, Never>()
+
 	private static let _pinsKey = "RyukSign.updatePins"
 
 	var updateCount: Int { updates.count }
@@ -117,6 +123,7 @@ final class AppUpdateChecker: ObservableObject {
 			|| (update.candidates.count == 1 && defaults.object(forKey: Self.singleSourceKey) as? Bool ?? true)
 	}
 
+	/// False: caller should show the picker.
 	@discardableResult
 	func autoUpdate(_ update: AppUpdate) -> Bool {
 		guard isAutomatic(update) else { return false }
@@ -164,11 +171,18 @@ final class AppUpdateChecker: ObservableObject {
 			AppOrigins.shared.prune(keeping: Set(apps.compactMap(\.uuid)))
 		}
 
-		let input = Input(sources: sources, library: library, ignored: SkippedUpdatesManager.shared.bundleIDs, pins: pins)
+		let input = Input(
+			sources: sources,
+			library: library,
+			ignored: SkippedUpdatesManager.shared.bundleIDs,
+			pins: pins
+		)
+
 		_task?.cancel()
 		_task = Task {
 			let result = await Task.detached(priority: .utility) { Self._compute(input) }.value
 			guard !Task.isCancelled else { return }
+
 			libraryKeys = result.libraryKeys
 			_byLibraryUUID = result.updates.reduce(into: [:]) { map, update in
 				for uuid in update.libraryUUIDs { map[uuid] = update }
@@ -196,13 +210,17 @@ final class AppUpdateChecker: ObservableObject {
 		let version: String
 		let origin: AppOrigin?
 
+		// Tweaked builds misreport their bundle version.
 		var installedVersion: String { origin?.version ?? version }
 
 		init?(_ app: AppInfoPresentable, origins: [String: AppOrigin]) {
-			guard let uuid = app.uuid,
+			guard
+				let uuid = app.uuid,
 				let key = app.originalIdentifier ?? app.identifier, !key.isEmpty,
 				let version = app.version
-			else { return nil }
+			else {
+				return nil
+			}
 			self.uuid = uuid
 			self.key = key
 			self.name = app.name ?? key
@@ -235,40 +253,53 @@ final class AppUpdateChecker: ObservableObject {
 			let top = entries.max { isNewerVersion($1.installedVersion, than: $0.installedVersion) }!
 			return Group(key: top.key, entries: entries, top: top)
 		}
+
 		var keysByAppID: [String: [String]] = [:]
 		for group in groups.values {
 			for id in Set([group.key] + group.entries.compactMap(\.origin?.appID)) {
 				keysByAppID[id, default: []].append(group.key)
 			}
 		}
+
 		for source in input.sources {
 			for app in source.repository.apps {
 				guard let keys = app.id.flatMap({ keysByAppID[$0] }) else { continue }
+
 				let candidate = AppUpdate.Candidate(sourceID: source.id, sourceName: source.name, repository: source.repository, app: app)
 				for key in keys { groups[key]?.candidates.append(candidate) }
 			}
 		}
+
 		let updates = groups.values.compactMap { group -> AppUpdate? in
 			let ignored = input.ignored.contains(group.key) || group.entries.contains { $0.origin?.appID.map(input.ignored.contains) == true }
 			guard !ignored else { return nil }
+
 			var seen: Set<String> = []
 			var candidates = group.candidates
 				.filter { isNewerVersion($0.version, than: group.top.installedVersion) && seen.insert($0.id).inserted }
 				.sorted(by: _isPreferred)
+
 			let pin = input.pins[group.key]
 			let pinnedExists = pin.map { pin in group.candidates.contains { $0.matches(pin) } } ?? false
 			if let pin, pinnedExists {
 				guard let index = candidates.firstIndex(where: { $0.matches(pin) }) else { return nil }
 				candidates.insert(candidates.remove(at: index), at: 0)
 			}
+
 			guard !candidates.isEmpty else { return nil }
+
 			return AppUpdate(
-				id: group.key, name: group.top.name, installedVersion: group.top.installedVersion,
-				libraryUUID: group.top.uuid, libraryUUIDs: group.entries.map(\.uuid),
-				candidates: candidates, isPinned: pinnedExists
+				id: group.key,
+				name: group.top.name,
+				installedVersion: group.top.installedVersion,
+				libraryUUID: group.top.uuid,
+				libraryUUIDs: group.entries.map(\.uuid),
+				candidates: candidates,
+				isPinned: pinnedExists
 			)
 		}
 		.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
 		return Output(updates: updates, libraryKeys: Set(groups.keys))
 	}
 
@@ -284,6 +315,7 @@ final class AppUpdateChecker: ObservableObject {
 	nonisolated static func isNewerVersion(_ new: String, than old: String) -> Bool {
 		let lhs = _components(new)
 		let rhs = _components(old)
+
 		for i in 0..<max(lhs.count, rhs.count) {
 			let a = i < lhs.count ? lhs[i] : 0
 			let b = i < rhs.count ? rhs[i] : 0

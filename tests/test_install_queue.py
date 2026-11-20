@@ -20,23 +20,26 @@ def source(name):
 def portable(text):
     return "\n".join(
         line for line in text.splitlines()
-        if line not in ("import NimbleExtensions", "import IDeviceSwift")
+        if line not in ("import UIKit", "import NimbleExtensions", "import IDeviceSwift")
     )
 
 
 queue = portable(source("InstallQueue.swift")).replace(
     "DispatchQueue.main", "Scheduler.main"
 )
-cleanup = source("InstallCleanup.swift").replace(
+cleanup = portable(source("InstallCleanup.swift")).replace(
     "UserDefaults.standard", "Fixture.defaults!"
-)
+).replace("DispatchQueue.main", "Scheduler.main")
+versions = source("AppUpdateChecker.swift")
+versions = "enum AppUpdateChecker {\n" + versions[versions.index("\tnonisolated static func isNewerVersion("):]
+batch = source("BatchJobRunner.swift")
 status = portable(source("InstallerStatusViewModel.swift"))
 installer = source("AppInstaller.swift")
 error_message = (ROOT / "RyukSign/Extensions/Error+message.swift").read_text()
 stop = installer[installer.index("\tfunc stop()"):installer.index("\n\t// MARK: Pipeline")]
 finish = installer[
     installer.index("\tprivate func _finish("):
-    installer.index("\tprivate static func error(")
+    installer.index("\n\t}", installer.index("\tprivate func _finish(")) + len("\n\t}")
 ]
 
 stubs = r'''
@@ -50,19 +53,54 @@ struct TestFailure: LocalizedError {
 func expect(_ value: @autoclosure () throws -> Bool, _ reason: String) throws {
     if try !value() { throw TestFailure(text: reason) }
 }
-extension String { static func localized(_ value: String) -> String { value } }
+extension String {
+    static func localized(_ value: String) -> String { value }
+    static func localized(_ value: String, arguments: CVarArg...) -> String { String(format: value, arguments: arguments) }
+}
+extension Int64 { var formattedFileSize: String { ByteCountFormatter.string(fromByteCount: self, countStyle: .file) } }
+extension FileManager {
+    func allocatedSize(_ url: URL) -> Int64 {
+        Int64(try! url.resourceValues(forKeys: [.fileAllocatedSizeKey]).fileAllocatedSize!)
+    }
+}
 protocol AppInfoPresentable {
     var uuid: String? { get }
     var name: String? { get }
+    var identifier: String? { get }
+    var originalIdentifier: String? { get }
+    var version: String? { get }
+    var isSigned: Bool { get }
 }
 struct App: AppInfoPresentable {
     let uuid: String?
     let name: String?
+    var identifier: String? = "fixture.app"
+    var originalIdentifier: String? { identifier }
+    var version: String? = "1"
+    var isSigned = true
 }
 struct AnyApp: Identifiable {
     let base: AppInfoPresentable
     let archive: Bool
     var id: String { base.uuid! }
+}
+typealias Signed = App
+struct UIImage {}
+struct CertificatePair {}
+struct Options {
+    var post_deleteAppAfterSigned = false
+    func resolved(for app: AppInfoPresentable) -> Self { self }
+}
+enum FR {
+    static func signPackageFile(_ app: AppInfoPresentable, using: Options, icon: UIImage?,
+                                certificate: CertificatePair?, completion: (Result<Signed, Error>) -> Void) {
+        fatalError("Install-only batch fixture")
+    }
+}
+final class BackgroundTaskManager {
+    init(taskName: String, expirationTitle: String, expirationBody: String) {}
+    func start() {}
+    func stop() {}
 }
 final class InstallerStatusViewModel: ObservableObject {
     enum InstallerStatus {
@@ -79,6 +117,8 @@ enum Fixture {
     static let shared = Storage()
     var apps: [AppInfoPresentable] = []
     func getAllApps() -> [AppInfoPresentable] { apps }
+    func deleteApp(for app: AppInfoPresentable) { deleteApps([app]) }
+    func getUuidDirectory(for app: AppInfoPresentable) -> URL? { app.uuid.map { Fixture.directory.appendingPathComponent($0) } }
     func deleteApps(_ deleting: [AppInfoPresentable]) {
         for app in deleting {
             do { try FileManager.default.removeItem(at: Fixture.directory.appendingPathComponent(app.uuid!)) }
@@ -102,18 +142,25 @@ enum StorageManager { static func purgeCaches() {} }
 final class UIApplication {
     enum State { case active, background }
     static let shared = UIApplication()
+    static func topViewController() -> UIViewController? { InstallQueueWindow.shared.presenter }
     static let didBecomeActiveNotification = Notification.Name("FixtureBecameActive")
     var applicationState = State.active
 }
 final class UIViewController {}
 final class UIAlertAction {
-    enum Style { case cancel }
-    init(title: String, style: Style) {}
+    enum Style { case cancel, destructive }
+    let style: Style
+    let handler: ((UIAlertAction) -> Void)?
+    init(title: String, style: Style, handler: ((UIAlertAction) -> Void)? = nil) {
+        self.style = style; self.handler = handler
+    }
 }
 enum UIAlertController {
     static var messages: [String] = []
+    static var actions: [UIAlertAction] = []
     static func showAlert(_ presenter: UIViewController, title: String, message: String, actions: [UIAlertAction]) {
         messages.append(message)
+        self.actions = actions
     }
 }
 enum UIActivityViewController { static func show(activityItems: [URL]) {} }
@@ -138,6 +185,7 @@ final class ServerDouble { func stop() {} }
     var _server: ServerDouble?
     var _statusObserver: Int?
     var _progressTask: Task<Void, Never>?
+    var _packageTask: Task<Void, Error>?
     init(app: AppInfoPresentable, isSharing: Bool = false) { self.app = app }
     func start(completion: @escaping (Result<Outcome, Error>) -> Void) { _completion = completion }
     func _disarmDeclineWatch() {}
@@ -254,6 +302,37 @@ checks = r'''
         try expect(Storage.shared.apps.isEmpty, "Deferred queued cleanup was lost")
         try expect(try FileManager.default.contentsOfDirectory(atPath: Fixture.directory.path).isEmpty,
                    "Deferred cleanup left disposable app files")
+
+        // Versions selected for removal can be queued after the confirmation appears.
+        let installed = App(uuid: "installed", name: "Release", version: "2")
+        let newer = App(uuid: "newer", name: "Release", version: "3")
+        Fixture.defaults.set("delete", forKey: InstallCleanup.otherVersionsKey)
+        Storage.shared.apps = [installed, a, b, c]
+        for app in Storage.shared.apps { try Data().write(to: Storage.shared.getUuidDirectory(for: app)!) }
+        var batch: BatchJobRunner? = BatchJobRunner(apps: [a, b], mode: .install, options: Options(), certificate: nil)
+        InstallCleanup.stage(installed); InstallCleanup.stage(a)
+        withExtendedLifetime(batch) { InstallCleanup.flush() }
+        try expect(Storage.shared.apps.compactMap(\.uuid) == ["a", "b"],
+                   "Batch inputs deleted during automatic cleanup")
+        batch = nil
+        InstallCleanup.flush()
+        try expect(Storage.shared.apps.compactMap(\.uuid) == ["b"], "Pending batch cleanup was lost")
+        Fixture.defaults.set(false, forKey: InstallCleanup.deleteKey)
+        Fixture.defaults.set("ask", forKey: InstallCleanup.otherVersionsKey)
+        Storage.shared.apps = [installed, a, b, c, newer]
+        for app in Storage.shared.apps {
+            try Data().write(to: Storage.shared.getUuidDirectory(for: app)!)
+        }
+        InstallCleanup.stage(installed)
+        InstallCleanup.flush()
+        try Scheduler.main.next()
+        guard let delete = UIAlertController.actions.first(where: { $0.style == .destructive }),
+              let confirm = delete.handler else { throw TestFailure(text: "Missing version cleanup confirmation") }
+        queue.enqueue(b)
+        batch = BatchJobRunner(apps: [c], mode: .install, options: Options(), certificate: nil)
+        withExtendedLifetime(batch) { confirm(delete) }
+        try expect(Storage.shared.apps.compactMap(\.uuid) == ["installed", "b", "c", "newer"],
+                   "Version cleanup did not remove only the unqueued older copy")
         print("PASS: queue transitions, foreground resume, failure reporting, terminal safety, queued cleanup")
     }
 }
@@ -264,7 +343,7 @@ with tempfile.TemporaryDirectory(prefix="install-queue-") as directory:
     data = work / "data"
     data.mkdir()
     swift = work / "Check.swift"
-    swift.write_text(error_message + stubs + stop + finish + "}\n" + queue + cleanup + status + checks)
+    swift.write_text("\n".join([error_message, stubs, stop, finish, "}", versions, batch, queue, cleanup, status, checks]))
     executable = work / "check"
     subprocess.run(
         ["swiftc", "-parse-as-library", "-module-cache-path", str(work / "modules"),

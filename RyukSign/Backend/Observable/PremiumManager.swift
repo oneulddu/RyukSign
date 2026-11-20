@@ -7,6 +7,7 @@
 
 import Foundation
 import AltSourceKit
+import NimbleJSON
 import OSLog
 
 @MainActor
@@ -127,7 +128,7 @@ final class PremiumManager: ObservableObject {
 		let response: URLResponse
 
 		do {
-			(data, response) = try await URLSession.shared.data(for: request)
+			(data, response) = try await NBFetchService.uncachedData(for: request)
 		} catch let error as URLError {
 			Logger.misc.error("Premium API network error: \(error.localizedDescription, privacy: .public)")
 

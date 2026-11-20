@@ -255,10 +255,23 @@ struct DownloadButtonView: View {
 
 struct DownloadProgressButton: View {
 	let download: Download
-	@StateObject private var _model = DownloadProgressModel()
+	@State private var _phase: DownloadPhase = .queued
+	@State private var _progress: Double = 0
+
+	private var _changes: AnyPublisher<Void, Never> {
+		Publishers.MergeMany(
+			download.$progress.map { _ in }.eraseToAnyPublisher(),
+			download.$unpackageProgress.map { _ in }.eraseToAnyPublisher(),
+			download.$isPaused.map { _ in }.eraseToAnyPublisher(),
+			download.$isImporting.map { _ in }.eraseToAnyPublisher(),
+			download.$isSigning.map { _ in }.eraseToAnyPublisher()
+		)
+		.receive(on: DispatchQueue.main)
+		.eraseToAnyPublisher()
+	}
 
 	private var _symbol: String {
-		switch _model.phase {
+		switch _phase {
 		case .importing: "archivebox"
 		case .signing: "signature"
 		default: "square.fill"
@@ -267,9 +280,9 @@ struct DownloadProgressButton: View {
 
 	var body: some View {
 		ZStack {
-			DownloadPhaseRing(phase: _model.phase, progress: _model.phaseProgress, size: 31, lineWidth: 2.3)
+			DownloadPhaseRing(phase: _phase, progress: _progress, size: 31, lineWidth: 2.3)
 			Image(systemName: _symbol)
-				.foregroundStyle(_model.phase.tint)
+				.foregroundStyle(_phase.tint)
 				.font(.footnote.bold())
 		}
 		.contentShape(Circle())
@@ -278,7 +291,9 @@ struct DownloadProgressButton: View {
 				DownloadManager.shared.cancelDownload(download)
 			}
 		}
-		.onAppear { _model.bind(to: download) }
-		.onChange(of: ObjectIdentifier(download)) { _ in _model.bind(to: download) }
+		.onReceive(_changes) {
+			_phase = download.phase
+			_progress = download.phaseProgress
+		}
 	}
 }

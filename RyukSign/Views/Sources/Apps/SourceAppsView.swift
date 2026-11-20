@@ -316,7 +316,7 @@ struct SourceAppsView: View {
     }
     
     // MARK: - Navigation Handling
-
+    
     private func _openPendingDetail() -> Bool {
         guard let navigation = appNavigationManager.pendingAppNavigation, navigation.opensDetail else { return false }
 

@@ -36,6 +36,21 @@ struct BatchItem: Identifiable {
 // MARK: - Runner
 @MainActor
 final class BatchJobRunner: ObservableObject {
+	private struct WeakBatch { weak var runner: BatchJobRunner? }
+	private static var _live: [WeakBatch] = []
+
+	static var protectedAppIDs: Set<String> {
+		var ids = Set<String>()
+		for entry in _live {
+			guard let batch = entry.runner, !batch.isFinished else { continue }
+			for item in batch.items {
+				ids.insert(item.id)
+				if let signedID = item.signed?.uuid { ids.insert(signedID) }
+			}
+		}
+		return ids
+	}
+
 	enum Mode {
 		case sign
 		case install
@@ -86,6 +101,8 @@ final class BatchJobRunner: ObservableObject {
 		self._certificate = certificate
 		self._resignsSigned = resignsSigned
 		self.phase = mode.signs ? .signing : .installing
+		Self._live.removeAll { $0.runner == nil }
+		Self._live.append(WeakBatch(runner: self))
 	}
 
 	var isFinished: Bool { phase == .finished }

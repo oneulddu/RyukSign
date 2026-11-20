@@ -119,6 +119,8 @@ struct ExtendedTabbarView: View {
                             Storage.shared.deleteSource(for: source)
                         }
                     }
+                    // The Duo's tab rail renders repo icons as blank tinted circles.
+                    .hidden(UIDevice.current.userInterfaceIdiom == .phone)
                 }
             }
             .sectionActions {

@@ -21,10 +21,10 @@ manual:
     file: "Zsign/LICENSE"
     
   - name: "ElleKit"
-    file: "LICENSE_ELLEKIT"
+    file: "licenses/LICENSE_ELLEKIT"
 
   - name: "LiveContainer"
-    file: "Zsign/LICENSE_LC"
+    file: "licenses/LICENSE_LC"
 
 exclude:
   - swift-html-entities

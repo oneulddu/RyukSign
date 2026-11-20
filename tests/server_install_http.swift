@@ -22,6 +22,9 @@ enum FileLogger {
     static func log(_ message: String, category: String) { print(message) }
     static func error(_ message: String, category: String) { print(message) }
 }
+// The loopback transport uses HTTP rather than the device certificate trust store.
+enum LocalCertificate { static let isEnabled = false, isTrusted = false }
+extension String { static func localized(_ value: String) -> String { value } }
 extension ServerInstaller {
     func setupApp(port: Int) throws -> Application {
         let app = Application(.testing)
@@ -100,6 +103,8 @@ extension ServerInstaller {
         let (_, failure) = try await request(server.payloadEndpoint)
         assert(failure.statusCode == 500)
         guard case .broken = model.status else { fatalError("File failure not reported") }
+        _ = try await request(server.plistEndpoint)
+        guard case .broken = model.status else { fatalError("Manifest retry regressed terminal failure") }
         print("Server HEAD/GET/range/error integration checks passed")
     }
 }
