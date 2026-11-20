@@ -27,7 +27,7 @@ struct SelfUpdateRelease: Identifiable, Equatable {
 	let isPrerelease: Bool
 	let isSemver: Bool
 
-	var isInstalled: Bool { SelfUpdateManager.compare(version, Bundle.main.version) == .orderedSame }
+	var isInstalled: Bool { SelfUpdateManager.compare(version, SelfUpdateManager.currentVersion) == .orderedSame }
 }
 
 enum SelfUpdatePhase: Equatable {
@@ -156,7 +156,10 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 		do {
 			let releases = try await fetchReleases(page: 1)
 			latest = releases.first { !$0.isPrerelease } ?? releases.first
-			latestSemver = releases.first { $0.isSemver && !$0.isPrerelease }
+			// Highest version, not newest publication: a rebuild of an older version
+			// published later must not hide a newer one.
+			latestSemver = releases.filter { $0.isSemver && !$0.isPrerelease }
+				.max { Self.compare($0.version, $1.version) == .orderedAscending }
 			UserDefaults.standard.set(Date(), forKey: Keys.lastCheck)
 			recomputeAvailable()
 		} catch {
@@ -165,8 +168,9 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 	}
 
 	private func recomputeAvailable() {
-		guard let candidate = latestSemver, Self.isSemver(Bundle.main.version) else { available = nil; return }
-		let isNewer = SelfUpdateManager.compare(candidate.version, Bundle.main.version) == .orderedDescending
+		let current = Self.currentVersion
+		guard let candidate = latestSemver, Self.isSemver(current) else { available = nil; return }
+		let isNewer = Self.compare(candidate.version, current) == .orderedDescending
 		available = (isNewer && !ignoredVersions.contains(candidate.version)) ? candidate : nil
 	}
 
@@ -222,23 +226,21 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 		)
 	}
 
+	static var currentVersion: String {
+		let base = Bundle.main.version
+		guard let revision = Bundle.main.infoDictionary?["RyukSignRevision"] as? String,
+			  revision != "0" else { return base }
+		return "\(base)-r\(revision)"
+	}
+
 	static func isSemver(_ version: String) -> Bool {
-		version.range(of: #"^\d+(\.\d+)+$"#, options: .regularExpression) != nil
+		version.range(of: #"^[0-9]+(\.[0-9]+){2}(-r[1-9][0-9]*)?\z"#, options: .regularExpression) != nil
 	}
 
 	// MARK: - Version compare
 
 	static func compare(_ a: String, _ b: String) -> ComparisonResult {
-		func parts(_ s: String) -> [Int] {
-			s.split(whereSeparator: { $0 == "." || $0 == "-" }).map { Int($0) ?? 0 }
-		}
-		let l = parts(a), r = parts(b)
-		for i in 0..<max(l.count, r.count) {
-			let lv = i < l.count ? l[i] : 0
-			let rv = i < r.count ? r[i] : 0
-			if lv != rv { return lv < rv ? .orderedAscending : .orderedDescending }
-		}
-		return .orderedSame
+		a.compare(b, options: .numeric)
 	}
 
 	// MARK: - Install

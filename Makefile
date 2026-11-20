@@ -5,6 +5,8 @@ TMP := $(TMPDIR)/$(NAME)
 STAGE := $(TMP)/stage
 APP := $(TMP)/Build/Products/Release-$(PLATFORM)
 CERT_JSON_URL := https://ryuksign-install.ryuksign.workers.dev/pack.json
+REVISION ?= 0
+export REVISION
 
 .PHONY: all deps clean $(SCHEMES)
 
@@ -28,6 +30,7 @@ deps:
 	fi
 
 $(SCHEMES): deps
+	@case "$$REVISION" in ''|0?*|*[!0-9]*) echo "REVISION must be 0 or a positive decimal integer" >&2; exit 1;; esac
 	xcodebuild \
 	    -project RyukSign.xcodeproj \
 	    -scheme "$@" \
@@ -44,6 +47,7 @@ $(SCHEMES): deps
 	mkdir -p $(STAGE)/Payload
 
 	mv "$(APP)/$@.app" "$(STAGE)/Payload/$@.app"
+	plutil -insert RyukSignRevision -string "$$REVISION" "$(STAGE)/Payload/$@.app/Info.plist"
 
 	chmod -R 0755 "$(STAGE)/Payload/$@.app"
 	codesign --force --sign - --timestamp=none "$(STAGE)/Payload/$@.app"

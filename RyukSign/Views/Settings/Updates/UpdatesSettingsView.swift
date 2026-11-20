@@ -45,7 +45,7 @@ struct UpdatesSettingsView: View {
 			HStack {
 				Text(.localized("Installed"))
 				Spacer()
-				Text(Bundle.main.version).foregroundStyle(.secondary)
+				Text(SelfUpdateManager.currentVersion).foregroundStyle(.secondary)
 			}
 			if let available = _manager.available {
 				HStack {
