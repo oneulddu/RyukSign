@@ -1,0 +1,48 @@
+[Unit]
+Description=RyukSign private OTA signing service
+After=network.target
+
+[Service]
+User=ryuksign-update
+Group=ryuksign-update
+EnvironmentFile=/etc/ryuksign-update/settings
+LoadCredential=proxy-key:/etc/ryuksign-update/proxy-key
+ExecStart=/usr/bin/python3 -I /opt/ryuksign-update/server.py
+Restart=on-failure
+RestartSec=1
+KillMode=control-group
+TimeoutStopSec=10
+UMask=0077
+CacheDirectory=ryuksign-update
+CacheDirectoryMode=0700
+TemporaryFileSystem=/tmp:rw,nosuid,nodev,noexec,noswap,size=768M,mode=1777
+InaccessiblePaths=/var/tmp -/etc/letsencrypt -/etc/ryuksign-update
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+SystemCallArchitectures=native
+LimitCORE=0
+CoredumpFilter=0x0
+LimitFSIZE=256M
+TasksMax=16
+MemoryMax=1152M
+MemorySwapMax=0
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

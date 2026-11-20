@@ -40,6 +40,13 @@ plain `X.Y.Z` tags newer than the installed version, so a `-rN` rebuild is
 listed in the catalog but never prompted; a fork-only fix that existing
 installs should be offered needs its own version number.
 
+The app cannot serve its own update, because iOS terminates the app that hosts
+the local install server. The updater's Server method therefore uploads the
+selected certificate to the signing server in [`selfupdate-server/`](../selfupdate-server/README.md),
+whose address is `RyukSign/Resources/SelfUpdateConfig.plist`. That file matches a
+`.gitignore` rule inherited from the original repository and is tracked here on
+purpose.
+
 `ArchiveHandler.move()` copies the signed `.app` into `Payload/`. On APFS within one
 volume, `FileManager.copyItem` clones: copying a 994 MB, 3,200-file bundle took
 0.25–0.58 s and consumed about 1 MB. That is small next to compression, so the copy

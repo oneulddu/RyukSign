@@ -103,9 +103,12 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 			let url = Bundle.main.url(forResource: "SelfUpdateConfig", withExtension: "plist"),
 			let dict = NSDictionary(contentsOf: url),
 			let base = (dict["ServerBaseURL"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-			!base.isEmpty
+			let components = URLComponents(string: base),
+			components.scheme?.lowercased() == "https",
+			let host = components.host, !host.isEmpty,
+			components.user == nil, components.password == nil
 		else { return nil }
-		return URL(string: base)
+		return components.url
 	}
 
 	var isServerConfigured: Bool { serverBaseURL != nil }
@@ -373,7 +376,9 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 		phase = .signing
 		var options = OptionsManager.shared.options
 		options.appIdentifier = Bundle.main.bundleIdentifier
-		options.appVersion = release.version
+		// A rebuild is tagged X.Y.Z-rN; writing that tag as the version would make
+		// this app non-semver and stop it from ever seeing a later release.
+		options.appVersion = release.version.split(separator: "-").first.map(String.init) ?? release.version
 		let signed = try await withCheckedThrowingContinuation { (c: CheckedContinuation<Signed, Error>) in
 			FR.signPackageFile(imported, using: options, icon: nil, certificate: certificate) { result in
 				c.resume(with: result)
@@ -396,6 +401,36 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 	}
 
 	// MARK: - Server signing
+
+	private final class NoSignRedirects: NSObject, URLSessionTaskDelegate {
+		func urlSession(_ session: URLSession, task: URLSessionTask,
+						willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+						completionHandler: @escaping (URLRequest?) -> Void) {
+			completionHandler(nil)
+		}
+	}
+
+	private static func installURL(_ value: String, relativeTo base: URL) -> URL? {
+		guard let link = URLComponents(string: value), link.string == value,
+			  link.scheme?.lowercased() == "itms-services",
+			  value.dropFirst("itms-services:".count).hasPrefix("//?"),
+			  link.fragment == nil, let items = link.queryItems, items.count == 2,
+			  items.contains(URLQueryItem(name: "action", value: "download-manifest")),
+			  let raw = items.first(where: { $0.name == "url" })?.value,
+			  let manifest = URLComponents(string: raw), manifest.string == raw,
+			  manifest.scheme?.lowercased() == "https",
+			  manifest.user == nil, manifest.password == nil,
+			  let host = manifest.percentEncodedHost, !host.isEmpty, !host.contains("%"),
+			  let origin = URLComponents(url: base, resolvingAgainstBaseURL: false),
+			  host.lowercased() == origin.percentEncodedHost?.lowercased(),
+			  manifest.rangeOfPort == nil || manifest.port != nil,
+			  (manifest.port ?? 443) == (origin.port ?? 443),
+			  manifest.url != nil,
+			  let encoded = raw.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+		else { return nil }
+		// Open only the validated fields, with the manifest encoded as a single value.
+		return URL(string: "itms-services://?action=download-manifest&url=\(encoded)")
+	}
 
 	private func requestServerSign(version: String, certificate: CertificatePair) async throws -> URL {
 		guard let base = serverBaseURL else {
@@ -436,6 +471,9 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 
 		var request = URLRequest(url: base.appendingPathComponent("ryuksign/sign"))
 		request.httpMethod = "POST"
+		// The server answers only after fetching the release and signing; a client
+		// timeout mid-sign makes the retry hit the still-busy signer and fail.
+		request.timeoutInterval = 120
 		request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
 		var lastError: Error = NSError(domain: "SelfUpdate", code: -6,
@@ -444,7 +482,7 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 		for attempt in 0..<2 {
 			let data: Data, response: URLResponse
 			do {
-				(data, response) = try await URLSession.shared.upload(for: request, from: body)
+				(data, response) = try await URLSession.shared.upload(for: request, from: body, delegate: NoSignRedirects())
 			} catch {
 				lastError = error
 				if attempt == 0 { try? await Task.sleep(nanoseconds: 2_000_000_000); continue }
@@ -455,7 +493,7 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 			let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
 
 			if (200..<300).contains(status) {
-				guard let install = json?["install"] as? String, let url = URL(string: install) else {
+				guard let install = json?["install"] as? String, let url = Self.installURL(install, relativeTo: base) else {
 					throw NSError(domain: "SelfUpdate", code: -6,
 								  userInfo: [NSLocalizedDescriptionKey: String.localized("The updater server returned no install link.")])
 				}
