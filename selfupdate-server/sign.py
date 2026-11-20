@@ -38,10 +38,10 @@ def profile(bundle, cert):
                 or p["ExpirationDate"] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)):
             raise ValueError()
         # A terminal wildcard covering the main ID also covers its suffixed widget ID.
-        wildcard = pattern.endswith("*") and bundle.startswith(pattern[:-1])
-        if pattern != bundle and not wildcard:
-            raise ValueError()
-        return wildcard
+        # Any other App ID still signs the installed bundle ID unchanged, as the app's
+        # own on-device signing does: per-device reseller profiles carry an unrelated
+        # explicit App ID, and the in-place update must keep the installed bundle ID.
+        return pattern.endswith("*") and bundle.startswith(pattern[:-1])
     except Exception:
         sys.exit(21)
 
