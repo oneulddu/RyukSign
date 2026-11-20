@@ -27,22 +27,23 @@ jobs:
           xcodebuild -version
 
       - name: Compile RyukSign
+        env:
+          INPUT_REVISION: ${{ inputs.revision }}
         run: | 
           agvtool new-version -all $(git rev-parse HEAD)
-          make
+          case "$INPUT_REVISION" in
+            0?*|*[!0-9]*) echo "Invalid revision" >&2; exit 1 ;;
+          esac
+          make REVISION="${INPUT_REVISION:-0}"
           mkdir upload
           mv packages/* upload/
 
       - name: Get Version
         id: get_version
-        env:
-          REVISION: ${{ inputs.revision }}
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Payload/*.app/Info.plist)
-          if [ -n "$REVISION" ]; then
-            case "$REVISION" in
-              *[!0-9]*) echo "revision must be a number" >&2; exit 1 ;;
-            esac
+          REVISION=$(/usr/libexec/PlistBuddy -c "Print RyukSignRevision" Payload/*.app/Info.plist)
+          if [ "$REVISION" != 0 ]; then
             VERSION="${VERSION}-r${REVISION}"
           fi
           echo "VERSION=${VERSION}" >> $GITHUB_ENV

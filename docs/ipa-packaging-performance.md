@@ -30,15 +30,15 @@ IDeviceKitten now points at the oneulddu/idevicekit fork of claration/IDeviceKit
 The change lives on its `ryuksign/stream-afc-upload` branch, and `.gitmodules`
 uses that fork so CI checkouts with `submodules: true` can fetch the commit.
 
-The release workflow accepts an optional numeric `revision` input. With it, a
-rebuild of an unchanged app version is tagged `vX.Y.Z-rN` instead of reusing
-the existing `vX.Y.Z` tag.
+Use `make REVISION=N` locally or set the release workflow's `revision` input
+to package rebuild `N`. The package records the revision separately from the
+bundle version strings, and the workflow tags it `vX.Y.Z-rN`. Plain `make`
+packages revision 0, corresponding to `vX.Y.Z`.
 
 The in-app updater and `app-repo.json` follow this fork's releases
-(`oneulddu/RyukSign`), not the original repository's. The updater offers only
-plain `X.Y.Z` tags newer than the installed version, so a `-rN` rebuild is
-listed in the catalog but never prompted; a fork-only fix that existing
-installs should be offered needs its own version number.
+(`oneulddu/RyukSign`), not the original repository's. The updater offers newer
+`X.Y.Z` and `X.Y.Z-rN` releases, comparing the base version first and then
+the numeric rebuild number. Builds without revision metadata count as revision 0.
 
 The app cannot serve its own update, because iOS terminates the app that hosts
 the local install server. The updater's Server method therefore uploads the

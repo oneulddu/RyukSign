@@ -11,6 +11,7 @@ python3 tests/test_installation_archive.py
 python3 tests/test_install_queue.py
 python3 tests/test_source_updates.py
 python3 tests/test_self_update_install.py
+python3 tests/test_self_update_versions.py
 python3 tests/test_source_cache.py
 python3 tests/test_source_ui_state.py
 python3 tests/test_app_group_removal.py
@@ -39,6 +40,8 @@ python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/che
   preservation, repository favorites, and blank-name fallback.
 - Self-update: signing replies yield an install link only for a same-origin HTTPS
   manifest; malformed and ambiguous links take the no-install-link error path.
+- Self-update versions: base and rebuild ordering, installed rebuild recognition,
+  and update offers for newer valid tags only.
 - Source cache: loopback fetching, hydration and refresh, authenticated premium requests
   bypassing disk caching, and preservation of displayed data on fetch failures.
 - Source UI state: filtered reorder protection, explicit-source routing, and combined-news
