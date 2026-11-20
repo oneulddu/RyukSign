@@ -2,11 +2,11 @@
   "name": "RyukSign Repository",
   "subtitle": "On-device iOS app signer and installer.",
   "description": "RyukSign is an on-device app signer and installer for iOS, derived from Feather. It extends Feather with a Tweak Manager, a built-in File Transfer / Web Manager server, an enhanced download manager, an app update checker, and curated repository support.",
-  "iconURL": "https://raw.githubusercontent.com/faroukbmiled/RyukSign/refs/heads/main/repo-icon.png",
-  "headerURL": "https://raw.githubusercontent.com/faroukbmiled/RyukSign/refs/heads/main/repo-icon.png",
-  "website": "https://github.com/faroukbmiled/RyukSign",
+  "iconURL": "https://raw.githubusercontent.com/oneulddu/RyukSign/refs/heads/main/repo-icon.png",
+  "headerURL": "https://raw.githubusercontent.com/oneulddu/RyukSign/refs/heads/main/repo-icon.png",
+  "website": "https://github.com/oneulddu/RyukSign",
   "tintColor": "C96FAD",
-  "sourceURL": "https://raw.githubusercontent.com/faroukbmiled/RyukSign/refs/heads/main/app-repo.json",
+  "sourceURL": "https://raw.githubusercontent.com/oneulddu/RyukSign/refs/heads/main/app-repo.json",
   "apps": [
     {
       "name": "RyukSign",
@@ -14,21 +14,21 @@
       "developerName": "faroukbmiled",
       "subtitle": "On-device iOS app signer and installer.",
       "localizedDescription": "RyukSign is an on-device app signer and installer for iOS, derived from Feather (by claration). Sign and install apps with a .p12 / .mobileprovision pair, manage tweaks (.dylib/.deb/.framework/.bundle/.appex), transfer files over HTTP/WebDAV, and track app updates — entirely on-device.",
-      "iconURL": "https://raw.githubusercontent.com/faroukbmiled/RyukSign/refs/heads/main/repo-icon.png",
+      "iconURL": "https://raw.githubusercontent.com/oneulddu/RyukSign/refs/heads/main/repo-icon.png",
       "tintColor": "C96FAD",
       "category": "utilities",
       "version": "4.1.0",
-      "versionDate": "2026-11-18T16:37:57Z",
+      "versionDate": "2026-11-20T13:50:11Z",
       "versionDescription": "See the GitHub release notes.",
-      "downloadURL": "https://github.com/faroukbmiled/RyukSign/releases/download/v4.1.0/RyukSign.ipa",
-      "size": 22041701,
+      "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0/RyukSign.ipa",
+      "size": 20166276,
       "screenshotURLs": [],
       "versions": [
         {
           "version": "4.1.0",
-          "date": "2026-11-18T16:37:57Z",
-          "size": 22041701,
-          "downloadURL": "https://github.com/faroukbmiled/RyukSign/releases/download/v4.1.0/RyukSign.ipa"
+          "date": "2026-11-20T13:50:11Z",
+          "size": 20166276,
+          "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0/RyukSign.ipa"
         }
       ],
       "appPermissions": {

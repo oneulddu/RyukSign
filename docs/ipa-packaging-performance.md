@@ -34,6 +34,12 @@ The release workflow accepts an optional numeric `revision` input. With it, a
 rebuild of an unchanged app version is tagged `vX.Y.Z-rN` instead of reusing
 the existing `vX.Y.Z` tag.
 
+The in-app updater and `app-repo.json` follow this fork's releases
+(`oneulddu/RyukSign`), not the original repository's. The updater offers only
+plain `X.Y.Z` tags newer than the installed version, so a `-rN` rebuild is
+listed in the catalog but never prompted; a fork-only fix that existing
+installs should be offered needs its own version number.
+
 `ArchiveHandler.move()` copies the signed `.app` into `Payload/`. On APFS within one
 volume, `FileManager.copyItem` clones: copying a 994 MB, 3,200-file bundle took
 0.25–0.58 s and consumed about 1 MB. That is small next to compression, so the copy

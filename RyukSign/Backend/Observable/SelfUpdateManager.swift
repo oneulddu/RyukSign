@@ -51,7 +51,8 @@ final class SelfUpdateManager: NSObject, ObservableObject {
 	@Published var installProgress: Double = 0
 	@Published var presentUpdatePrompt = false
 
-	private let _repo = "faroukbmiled/RyukSign"
+	// This fork's builds carry fixes the original repository's releases lack.
+	private let _repo = "oneulddu/RyukSign"
 	private let _perPage = 30
 
 	private enum Keys {
