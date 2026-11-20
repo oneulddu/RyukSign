@@ -29,6 +29,9 @@ struct InstallProgressView: View {
 				.onChange(of: viewModel.isFailed) { failed in
 					if failed { _isPulsing = false }
 				}
+				.onChange(of: viewModel.isFailed) { failed in
+					if failed { _isPulsing = false }
+				}
 		}
 	}
 	

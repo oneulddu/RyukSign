@@ -49,7 +49,7 @@ final class ArchiveHandler: NSObject {
 	
 	// Keep this async and nonisolated: with the app's Swift concurrency settings it runs
 	// off the main actor at the caller's priority. The install/update pipeline owns keep-alive.
-	func archive() async throws -> InstallationArchive {
+	func archive(forExport: Bool = false) async throws -> InstallationArchive {
 		guard let payloadUrl = self._payloadUrl else {
 			throw SigningFileHandlerError.appNotFound
 		}
@@ -60,7 +60,7 @@ final class ArchiveHandler: NSObject {
 		try AppArchiver.zip(
 			payload: payloadUrl,
 			to: ipaUrl,
-			compression: ZipCompression.allCases[ArchiveHandler.getCompressionLevel()],
+			compression: forExport ? Self.compressionLevel : .NoCompression,
 			progress: { progress in
 				guard gate.admit(progress) else { return }
 				Task { @MainActor in
@@ -106,9 +106,12 @@ final class ArchiveHandler: NSObject {
 		stem = stem.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
 		return stem.isEmpty ? "App" : stem
 	}
-	
-	static func getCompressionLevel() -> Int {
-		UserDefaults.standard.integer(forKey: "Feather.compressionLevel")
+
+	static let compressionKey = "Feather.compressionLevel"
+
+	static var compressionLevel: ZipCompression {
+		let raw = UserDefaults.standard.object(forKey: compressionKey) as? Int
+		return raw.flatMap(ZipCompression.init(rawValue:)) ?? .DefaultCompression
 	}
 }
 

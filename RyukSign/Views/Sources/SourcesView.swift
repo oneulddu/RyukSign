@@ -447,7 +447,10 @@ struct SourcesView: View {
 
 		if let identifier = navigation.sourceIdentifier,
 		   let source = _sources.first(where: { $0.identifier == identifier }) {
-			_navigationSource = source
+			// The open list already owns this source and handles the request itself.
+			if _activeIndividualSource != source {
+				_navigationSource = source
+			}
 			return
 		}
 

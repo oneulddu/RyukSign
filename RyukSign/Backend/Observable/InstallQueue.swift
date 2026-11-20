@@ -24,6 +24,7 @@ final class InstallQueue: ObservableObject {
 
 	private var _failures: [(name: String, error: Error)] = []
 
+	// An advance that lands while backgrounded can't start the next install until we're back.
 	private init() {
 		NotificationCenter.default.addObserver(
 			forName: UIApplication.didBecomeActiveNotification,
@@ -101,6 +102,7 @@ final class InstallQueue: ObservableObject {
 		}
 	}
 
+	// The user may have skipped ahead during the delay.
 	private func _advanceAfterResult() {
 		let finished = installer
 		DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
@@ -109,15 +111,16 @@ final class InstallQueue: ObservableObject {
 		}
 	}
 
+	// The last card shows its own failure.
 	private func _reportFailures() {
 		let failures = _failures
 		_failures.removeAll()
 		HeartbeatManager.shared.start(true)
 
-		// A lone failure on the last card already has its own Details action.
 		guard failures.count > 1 || installer?.viewModel.isFailed != true else { return }
 
 		let message = failures.map { "\($0.name): \($0.error.message)" }.joined(separator: "\n\n")
+		// Let the sheet present first.
 		let finished = installer
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
 			guard let self, self.isFinished, self.installer === finished,

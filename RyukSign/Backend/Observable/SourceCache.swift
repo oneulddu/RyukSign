@@ -2,6 +2,8 @@
 //  SourceCache.swift
 //  RyukSign
 //
+//  Created by Ryuk
+//
 
 import Foundation
 import CryptoKit
@@ -39,13 +41,26 @@ enum SourceCache {
 		(UserDefaults.standard.object(forKey: refreshKey) as? Double).flatMap(Refresh.init) ?? .halfHour
 	}
 
-	static let directory = URL.cachesDirectory.appendingPathComponent("Sources", isDirectory: true)
+	static let directory: URL = {
+		discardLegacyEntries()
+		return URL.cachesDirectory.appendingPathComponent("PublicSources", isDirectory: true)
+	}()
+
+	static func discardLegacyEntries() {
+		// The old cache mixed public and authenticated responses with no provenance.
+		// Never read it, even if removal fails or the host registry has been reset.
+		try? FileManager.default.removeItem(at: URL.cachesDirectory.appendingPathComponent("Sources", isDirectory: true))
+	}
 
 	static func data(for url: URL) -> (data: Data, date: Date)? {
+		guard !RyukSignAPI.isPremiumSource(url) else { return nil }
 		let file = _file(for: url)
-		guard let data = try? Data(contentsOf: file),
+		guard
+			let data = try? Data(contentsOf: file),
 			let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-		else { return nil }
+		else {
+			return nil
+		}
 		return (data, date)
 	}
 
@@ -58,6 +73,7 @@ enum SourceCache {
 	}
 
 	static func store(_ data: Data, for url: URL) {
+		guard !RyukSignAPI.isPremiumSource(url) else { return }
 		try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		try? data.write(to: _file(for: url), options: .atomic)
 	}

@@ -51,7 +51,11 @@ RyukSign's identity, settings, compression dependencies, and existing Zip output
   Report save failures, roll back failed changes, and delete owned files only
   after the database deletion is saved. Migration flags require a successful save.
 - Treat native signing return values and callback failures as failures before
-  publishing output. Retain the current Zsign submodule and callback signature.
+  publishing output. Since the upstream 4.1.0 merge the Zsign submodule is upstream's
+  fork, whose callback reports only success or failure and can return success after
+  skipping the main executable; the app therefore checks that executable before
+  signing and its signature and the bundle's `CodeResources` afterwards. Failures on
+  individual files inside nested content are not reported by that Zsign.
 - Propagate certificate import and backup restore failures. Validate certificate
   identifiers before restore writes, and preserve unregistered recovery files.
   Certificate updates stage replacement files and retain originals for rollback

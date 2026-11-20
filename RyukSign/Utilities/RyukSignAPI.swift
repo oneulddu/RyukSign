@@ -94,6 +94,9 @@ enum RyukSignAPI {
 	}
 
 	static func clearPremiumIdentity() {
+		SourceCache.discardLegacyEntries()
+		// Cached URL variants cannot be reconstructed from the remaining source rows.
+		URLCache.shared.removeAllCachedResponses()
 		IdentityVault.delete(.premiumActive)
 		IdentityVault.delete(.premiumURLs)
 	}
@@ -180,10 +183,10 @@ enum RyukSignAPI {
 	}
 
 	static func authHeaders(for url: URL) -> [String: String] {
-		guard isPremiumSource(url), let uuid = deviceUUID else {
-			return [:]
-		}
-		return ["ryukSignUUID": uuid]
+		guard isPremiumSource(url) else { return [:] }
+		var headers = ["Cache-Control": "no-store"]
+		headers["ryukSignUUID"] = deviceUUID
+		return headers
 	}
 
 	/// Lets the server trim the payload instead of downloading the whole catalog first.

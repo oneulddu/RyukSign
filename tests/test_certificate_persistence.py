@@ -23,7 +23,7 @@ for entity in model.findall("entity"):
 storage = (root / "RyukSign/Backend/Storage/Storage.swift").read_text()
 storage = storage.replace("NSPersistentContainer(name: _name)", "makeContainer()").replace("UserDefaults.standard", "testDefaults")
 certificate = (root / "RyukSign/Backend/Storage/Storage+Certificate.swift").read_text()
-certificate = certificate.replace("import UIKit.UIImpactFeedbackGenerator", "").replace("import ZsignSwift", "")
+certificate = certificate.replace("import UIKit.UIImpactFeedbackGenerator", "").replace("import Zsign\n", "")
 certificate = certificate[:certificate.index("\n\tfunc revokagedCertificate")] + "\n}"
 handler = (root / "RyukSign/Utilities/Handlers/CertificateFileHandler.swift").read_text()
 auto = (root / "RyukSign/Utilities/CertificateAutoImporter.swift").read_text()

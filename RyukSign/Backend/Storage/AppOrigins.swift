@@ -2,6 +2,8 @@
 //  AppOrigins.swift
 //  RyukSign
 //
+//  Created by Ryuk
+//
 
 import Foundation
 
@@ -46,6 +48,7 @@ final class AppOrigins: @unchecked Sendable {
 			let before = _origins
 			change(&_origins)
 			guard before != _origins, let data = try? JSONEncoder().encode(_origins) else { return false }
+
 			try? FileManager.default.createDirectory(at: _url.deletingLastPathComponent(), withIntermediateDirectories: true)
 			try? data.write(to: _url, options: .atomic)
 			return true

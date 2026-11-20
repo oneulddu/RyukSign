@@ -55,6 +55,7 @@ struct RyukSignApp: App {
             UserDefaults.standard.set(true, forKey: "com.apple.SwiftUI.IgnoreSolariumLinkedOnCheck")
         }
 
+        // Hosted UIKit lists skip scroll edge tracking.
         if #unavailable(iOS 26) {
             let appearance = UITabBarAppearance()
             appearance.configureWithDefaultBackground()
@@ -119,6 +120,9 @@ struct RyukSignApp: App {
                 if newPhase == .active, UserDefaults.standard.object(forKey: AppUpdateChecker.launchCheckKey) as? Bool ?? true {
                     Task { await SourcesViewModel.shared.refreshStale(Storage.shared.getSources()) }
                 }
+            }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in
+                DuoDisplay.refreshSupportedOrientations()
             }
             .task {
                 await selfUpdate.checkOnLaunch()
@@ -392,6 +396,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, DownloadManager.ErrorDelegat
 		StorageManager.purgeStaleTemporary()
 		InstallCleanup.flush()
 		_addDefaultCertificates()
+		FR.refreshSSLCertificatesIfStale()
 		_registerBackgroundTasks()
 
 		// Idempotent, no-op after first run.
@@ -402,6 +407,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, DownloadManager.ErrorDelegat
 		return true
 	}
 	
+	func application(
+		_ application: UIApplication,
+		supportedInterfaceOrientationsFor window: UIWindow?
+	) -> UIInterfaceOrientationMask {
+		DuoDisplay.supportedOrientations(for: window)
+	}
+
 	// MARK: - DownloadManager.ErrorDelegate
 	
 	func showUIErrorMessage(title: String, message: String) {

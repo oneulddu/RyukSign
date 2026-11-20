@@ -26,6 +26,7 @@ extension InstallerStatusViewModel {
 
 	var statusImage: String {
 		if isFailed { return "exclamationmark.triangle.fill" }
+
 		switch status {
 		case .none: return "archivebox.fill"
 		case .ready: return "app.gift"
@@ -37,6 +38,7 @@ extension InstallerStatusViewModel {
 	
 	var statusLabel: String {
 		if isFailed { return .localized("Failed") }
+
 		switch status {
 		case .none: return .localized("Packaging")
 		case .ready: return .localized("Ready")

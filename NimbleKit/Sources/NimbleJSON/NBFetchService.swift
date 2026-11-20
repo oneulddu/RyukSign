@@ -12,6 +12,11 @@ import OSLog
 public class NBFetchService {
 
 	private static let log = Logger(subsystem: "com.ryuksign.network", category: "NBFetchService")
+	private static let uncachedSession: URLSession = {
+		let configuration = URLSessionConfiguration.default
+		configuration.urlCache = nil
+		return URLSession(configuration: configuration)
+	}()
 
 	public enum NBFetchServiceError: Error, LocalizedError {
 		case invalidURL
@@ -32,6 +37,12 @@ public class NBFetchService {
 	}
 
 	public init() {}
+
+	public static func uncachedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+		var request = request
+		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		return try await uncachedSession.data(for: request)
+	}
 }
 
 // MARK: - Class extension: fetch
@@ -67,7 +78,8 @@ extension NBFetchService {
 				request.setValue(value, forHTTPHeaderField: key)
 			}
 
-			let task = URLSession.shared.dataTask(with: request) { data, response, error in
+			let session = request.value(forHTTPHeaderField: "Cache-Control") == "no-store" ? Self.uncachedSession : URLSession.shared
+			let task = session.dataTask(with: request) { data, response, error in
 				if let error = error {
 					Self.log.error("Request FAILED \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
 					completion(.failure(NBFetchServiceError.networkError(error)))
@@ -82,12 +94,8 @@ extension NBFetchService {
 					return
 				}
 
-				// Non-2xx responses are logged with a body snippet so auth/server
-				// rejections (e.g. premium 401/403/422) are visible instead of
-				// silently failing to decode and looking like an infinite load.
 				if !(200..<300).contains(statusCode) {
-					let snippet = String(data: data.prefix(512), encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
-					Self.log.error("Request HTTP \(statusCode, privacy: .public) \(url.absoluteString, privacy: .public)\nBody: \(snippet, privacy: .public)")
+					Self.log.error("Request HTTP \(statusCode, privacy: .public) \(url.absoluteString, privacy: .public) (\(data.count) bytes)")
 					completion(.failure(NBFetchServiceError.httpError(statusCode)))
 					return
 				}
@@ -101,8 +109,7 @@ extension NBFetchService {
 					onData?(data)
 					completion(.success(decodedData))
 				} catch {
-					let snippet = String(data: data.prefix(512), encoding: .utf8) ?? "<non-utf8 \(data.count) bytes>"
-					Self.log.error("Request PARSE FAIL (HTTP \(statusCode, privacy: .public)) \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)\nBody: \(snippet, privacy: .public)")
+					Self.log.error("Request PARSE FAIL (HTTP \(statusCode, privacy: .public)) \(url.absoluteString, privacy: .public) (\(data.count) bytes): \(String(describing: type(of: error)), privacy: .public)")
 					completion(.failure(NBFetchServiceError.parsingError(error)))
 				}
 			}

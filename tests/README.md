@@ -15,6 +15,7 @@ python3 tests/test_source_ui_state.py
 python3 tests/test_app_group_removal.py
 python3 tests/test_storage.py
 python3 tests/test_signing_failure.py
+python3 tests/test_sandbox_guard.py
 python3 tests/test_certificate_persistence.py
 python3 tests/test_backup_restore.py
 python3 tests/test_storage_recovery_cleanup.py
@@ -46,7 +47,8 @@ python3 tests/test_archive_extraction.py --checkouts /path/to/SourcePackages/che
   unsafe/long metadata, and export failure propagation. ZIP/HTTP/pairing are stubs.
 - Storage: the production Core Data model with temporary stores and injected failures;
   unreadable-store preservation, save rollback, failed deletion, and durable reopening.
-- Signing: native signing failures and success through stubs, with no real signing.
+- Signing: native failures block publication; main-bundle checks accept unsigned Mach-O resources and resource directories named `.app`. Uses signer stubs, not real signing.
+- Sandbox guard: missing guard or injection failure blocks completion; the host's built-in and newly placed extensions receive the required library, but a Watch companion's extension is untouched. Ordinary tweaks remain optional.
 - Certificates: import error propagation and replacement rollback using disposable
   synthetic files, without real credentials.
 - Backup restore: invalid/duplicate identifiers rejected before writes, failed saves

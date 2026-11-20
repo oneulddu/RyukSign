@@ -5,7 +5,7 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 handler = (root / 'RyukSign/Utilities/Handlers/ZsignHandler.swift').read_text()
-handler = handler.replace('import ZsignSwift\n', '').replace('import UIKit\n', '')
+handler = handler.replace('import Zsign\n', '').replace('import UIKit\n', '')
 workflow = (root / 'RyukSign/Utilities/Handlers/SigningHandler.swift').read_text()
 start = workflow.index('\t\tlet handler = ZsignHandler(')
 end = workflow.index('\n\t}\n', start)
@@ -19,6 +19,11 @@ struct Options {
     var disInjectionFiles: [String] = []
     var appEntitlementsFile: URL? = nil
     var removeProvisioning = false
+    var blockSandboxEscape = false
+}
+struct TweakHandler {
+    init(app: URL, options: Options) {}
+    func injectSandboxEscapeGuard() throws { fatalError("Guard not requested") }
 }
 final class OptionsManager { static let shared = OptionsManager(); var options = Options() }
 final class CertificatePair { var password: String? = "test"; var nickname: String? = "test" }
@@ -45,14 +50,19 @@ enum Zsign {
     static var result = false
     static var callback: Bool? = nil
     static var calls = 0
-    static var callbackError: Error? = nil
+    static var unsigned: String?
+    static func checkSigned(appExecutable: String) -> Bool {
+        URL(fileURLWithPath: appExecutable).lastPathComponent != unsigned
+    }
+    static var provisioningRemoved: Bool?
     static var disinjectResult = true
     static func removeDylibs(appExecutable: String, using: [String]) -> Bool { disinjectResult }
     static func sign(appPath: String, provisionPath: String = "", p12Path: String = "",
                      p12Password: String = "", entitlementsPath: String, adhoc: Bool = false,
-                     removeProvision: Bool, completion: (Bool, Error?) -> Void) -> Bool {
+                     removeProvision: Bool, completion: ((Bool) -> Void)? = nil) -> Bool {
         calls += 1
-        if let callback { completion(callback, callbackError) }
+        provisioningRemoved = removeProvision
+        if let callback { completion?(callback) }
         return result
     }
 }
@@ -60,7 +70,7 @@ enum Zsign {
 final class CommitGate {
     var _options = Options()
     var appCertificate: CertificatePair? = CertificatePair()
-    let movedAppPath = URL(fileURLWithPath: "/unused-test-bundle")
+    let movedAppPath = URL(fileURLWithPath: CommandLine.arguments[1])
     var moves = 0
     var registrations = 0
     func move() async throws { moves += 1 }
@@ -71,23 +81,54 @@ final class CommitGate {
 }
 @main struct Check {
     static func main() async throws {
+        let bundle = CommitGate().movedAppPath
+        let resources = bundle.appendingPathComponent("_CodeSignature")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        try Data("resources".utf8).write(to: resources.appendingPathComponent("CodeResources"))
+        let plist: NSDictionary = ["CFBundleExecutable": "Fixture"]
+        assert(plist.write(to: bundle.appendingPathComponent("Info.plist"), atomically: true))
+        Zsign.result = true
+        Zsign.callback = true
+        func mustNotPublish(_ reason: String) async throws {
+            let gate = CommitGate()
+            do { try await gate.modify() } catch {
+                guard gate.moves == 0, gate.registrations == 0 else { exit(1) }
+                return
+            }
+            print("FAIL: published \(reason)"); exit(1)
+        }
+        try await mustNotPublish("missing main executable")
+        let exe = bundle.appendingPathComponent("Fixture")
+        try FileManager.default.createDirectory(at: exe, withIntermediateDirectories: false)
+        try await mustNotPublish("directory instead of executable")
+        try FileManager.default.removeItem(at: exe)
+        let magic = Data([0xcf, 0xfa, 0xed, 0xfe])
+        try magic.write(to: exe)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: exe.path)
+        try await mustNotPublish("unreadable main executable")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: exe.path)
+        Zsign.unsigned = "Fixture"
+        try await mustNotPublish("unsigned main executable")
+        Zsign.unsigned = "Resource.o"
+        let resourceApp = CommitGate()
+        do { try await resourceApp.modify() } catch {
+            print("FAIL: rejected a valid app with unsigned resources: \(error)"); exit(1)
+        }
+        assert(resourceApp.moves == 1 && resourceApp.registrations == 1)
         // Return value and callback are independent failure signals in the existing bridge.
-        let nativeError = NSError(domain: "NativeSigner", code: 42)
-        let cases: [(Bool, Bool?, Error?)] = [
-            (false, nil, nil), (false, false, nil), (false, true, nil),
-            (true, false, nil), (true, true, nativeError), (false, false, nativeError),
-            (true, true, nil), (true, nil, nil)
+        let cases: [(Bool, Bool?)] = [
+            (false, nil), (false, false), (false, true),
+            (true, false), (true, true), (true, nil)
         ]
-        for (result, callback, error) in cases {
+        for (result, callback) in cases {
             Zsign.result = result
             Zsign.callback = callback
-            Zsign.callbackError = error
-            let expectFailure = !result || callback == false || error != nil
+            let expectFailure = !result || callback == false
             let gate = CommitGate()
             var caught: Error?
             do { try await gate.modify() } catch { caught = error }
             assert((caught != nil) == expectFailure)
-            if error != nil { assert((caught as NSError?)?.domain == "NativeSigner") }
+            if expectFailure { assert(caught as? SigningFileHandlerError == .signFailed) }
             assert(gate.moves == (expectFailure ? 0 : 1))
             assert(gate.registrations == (expectFailure ? 0 : 1))
             assert(!StdoutCapture.shared.active)
@@ -96,8 +137,24 @@ final class CommitGate {
             caught = nil
             do { try await adhoc.adhocSign() } catch { caught = error }
             assert((caught != nil) == expectFailure)
-            if error != nil { assert((caught as NSError?)?.domain == "NativeSigner") }
+            if expectFailure { assert(caught as? SigningFileHandlerError == .signFailed) }
             assert(!StdoutCapture.shared.active)
+        }
+        Zsign.result = true
+        Zsign.callback = true
+        for remove in [false, true] {
+            let gate = CommitGate()
+            gate._options.removeProvisioning = remove
+            Zsign.provisioningRemoved = nil
+            try await gate.modify()
+            guard Zsign.provisioningRemoved == remove else {
+                print("FAIL: certificate signer received incorrect removeProvision"); exit(1)
+            }
+            Zsign.provisioningRemoved = nil
+            try await ZsignHandler(appUrl: gate.movedAppPath, options: gate._options).adhocSign()
+            guard Zsign.provisioningRemoved == remove else {
+                print("FAIL: ad-hoc signer received incorrect removeProvision"); exit(1)
+            }
         }
         // Disinjection failure must also keep output uncommitted.
         let disinject = CommitGate()
@@ -130,4 +187,8 @@ with tempfile.TemporaryDirectory(prefix='ryuksign-signing-check-') as directory:
     binary = Path(directory) / 'check'
     source.write_text(program)
     subprocess.run(['swiftc', '-parse-as-library', str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+    bundle = Path(directory) / 'Fixture.app'
+    (bundle / 'Templates' / 'Starter.app').mkdir(parents=True)
+    subprocess.run(['xcrun', 'clang', '-x', 'c', '-c', '-', '-o', str(bundle / 'Resource.o')],
+                   input=b'int fixture_resource;\n', check=True)
+    subprocess.run([str(binary), str(bundle)], check=True)

@@ -12,7 +12,7 @@
 		330F68FE2DBF7C8600D8C35D /* NimbleViews in Frameworks */ = {isa = PBXBuildFile; productRef = 330F68FD2DBF7C8600D8C35D /* NimbleViews */; };
 		330F69012DC03DF500D8C35D /* NimbleExtensions in Frameworks */ = {isa = PBXBuildFile; productRef = 330F69002DC03DF500D8C35D /* NimbleExtensions */; };
 		330F69032DC03DF500D8C35D /* NimbleViews in Frameworks */ = {isa = PBXBuildFile; productRef = 330F69022DC03DF500D8C35D /* NimbleViews */; };
-		3346F5C22DC329A200C7D508 /* ZsignSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 3346F5C12DC329A200C7D508 /* ZsignSwift */; };
+		3346F5C22DC329A200C7D508 /* Zsign in Frameworks */ = {isa = PBXBuildFile; productRef = 3346F5C12DC329A200C7D508 /* Zsign */; };
 		3346F83B2DC6C6D100C7D508 /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 3346F83A2DC6C6D100C7D508 /* NukeUI */; };
 		3346F8492DC6D64800C7D508 /* NimbleJSON in Frameworks */ = {isa = PBXBuildFile; productRef = 3346F8482DC6D64800C7D508 /* NimbleJSON */; };
 		3349E7672DEFB46F00E317ED /* IDeviceSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 3349E7662DEFB46F00E317ED /* IDeviceSwift */; };
@@ -26,6 +26,7 @@
 		3A2F0F0D2E976B67009DE4CE /* IDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 3A2F0F0C2E976B67009DE4CE /* IDevice */; };
 		3A2F0F0F2E976B67009DE4CE /* IDeviceSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 3A2F0F0E2E976B67009DE4CE /* IDeviceSwift */; };
 		FADE000100000000000F0001 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = FADE000100000000000F0002 /* ZIPFoundation */; };
+		FADE0002000000000000C003 /* X509 in Frameworks */ = {isa = PBXBuildFile; productRef = FADE0002000000000000C002 /* X509 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -141,7 +142,7 @@
 			files = (
 				330F68FE2DBF7C8600D8C35D /* NimbleViews in Frameworks */,
 				330F68FC2DBF7C8600D8C35D /* NimbleExtensions in Frameworks */,
-				3346F5C22DC329A200C7D508 /* ZsignSwift in Frameworks */,
+				3346F5C22DC329A200C7D508 /* Zsign in Frameworks */,
 				3346F8492DC6D64800C7D508 /* NimbleJSON in Frameworks */,
 				330F69012DC03DF500D8C35D /* NimbleExtensions in Frameworks */,
 				3349E7672DEFB46F00E317ED /* IDeviceSwift in Frameworks */,
@@ -153,6 +154,7 @@
 				330F69032DC03DF500D8C35D /* NimbleViews in Frameworks */,
 				3305BBAC2DB8944200660D45 /* Vapor in Frameworks */,
 				3346F83B2DC6C6D100C7D508 /* NukeUI in Frameworks */,
+				FADE0002000000000000C003 /* X509 in Frameworks */,
 				336D43982DB7454A00206400 /* MobileCoreServices.framework in Frameworks */,
 				3A2F0F0F2E976B67009DE4CE /* IDeviceSwift in Frameworks */,
 			);
@@ -222,6 +224,7 @@
 				3379BC662DC9DB32004372DA /* Copy Acknowledgements */,
 				3A2F0ED92E96DA0E009DE4CE /* Embed Foundation Extensions */,
 				3A7F10012E9A11B0009DE4CE /* Build FilePickerFix */,
+				3A7F10022E9A11B0009DE4CE /* Build SandboxEscapeBlock */,
 			);
 			buildRules = (
 			);
@@ -242,8 +245,9 @@
 				330F68FD2DBF7C8600D8C35D /* NimbleViews */,
 				330F69002DC03DF500D8C35D /* NimbleExtensions */,
 				330F69022DC03DF500D8C35D /* NimbleViews */,
-				3346F5C12DC329A200C7D508 /* ZsignSwift */,
+				3346F5C12DC329A200C7D508 /* Zsign */,
 				3346F83A2DC6C6D100C7D508 /* NukeUI */,
+				FADE0002000000000000C002 /* X509 */,
 				3346F8482DC6D64800C7D508 /* NimbleJSON */,
 				33693A072DC8BF5B00730215 /* AltSourceKit */,
 				3349E7662DEFB46F00E317ED /* IDeviceSwift */,
@@ -349,6 +353,7 @@
 				3305BBAA2DB8944200660D45 /* XCRemoteSwiftPackageReference "vapor" */,
 				330F68FF2DC03DF400D8C35D /* XCLocalSwiftPackageReference "NimbleKit" */,
 				3346F8372DC6C68300C7D508 /* XCRemoteSwiftPackageReference "Nuke" */,
+				FADE0002000000000000C001 /* XCRemoteSwiftPackageReference "swift-certificates" */,
 				33693A062DC8BF5B00730215 /* XCLocalSwiftPackageReference "AltSourceKit" */,
 				339776052DC9D05C00642FFB /* XCRemoteSwiftPackageReference "LicensePlist" */,
 				3A2F0F0B2E976B67009DE4CE /* XCLocalSwiftPackageReference "IDeviceKitten" */,
@@ -419,6 +424,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -e\nOUTPUT=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FilePickerFix.dylib\"\nmkdir -p \"$(dirname \"${OUTPUT}\")\"\nxcrun --sdk iphoneos clang -dynamiclib -fobjc-arc -Os -target arm64-apple-ios14.0 -isysroot \"$(xcrun --sdk iphoneos --show-sdk-path)\" -Wno-deprecated-declarations -framework Foundation -framework UIKit -install_name @executable_path/Frameworks/FilePickerFix.dylib -o \"${OUTPUT}\" \"${SRCROOT}/Tweaks/FilePickerFix/FilePickerFix.m\"\n";
+		};
+		3A7F10022E9A11B0009DE4CE /* Build SandboxEscapeBlock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Tweaks/SandboxEscapeBlock/SandboxEscapeBlock.m",
+			);
+			name = "Build SandboxEscapeBlock";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/SandboxEscapeBlock.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nOUTPUT=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SandboxEscapeBlock.dylib\"\nmkdir -p \"$(dirname \"${OUTPUT}\")\"\nxcrun --sdk iphoneos clang -dynamiclib -Os -target arm64-apple-ios14.0 -isysroot \"$(xcrun --sdk iphoneos --show-sdk-path)\" -Wno-deprecated-declarations -install_name @executable_path/Frameworks/SandboxEscapeBlock.dylib -o \"${OUTPUT}\" \"${SRCROOT}/Tweaks/SandboxEscapeBlock/SandboxEscapeBlock.m\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -597,7 +618,7 @@
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = S4Q99652S6;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -607,8 +628,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSign/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSign;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2024 Samara M";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RyukSign uses your local network to transfer IPAs and tweaks to this device over the Web Manager server.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -629,11 +651,11 @@
 					"$(PROJECT_DIR)/RyukSign/Resources/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 3.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "all dist app 2";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "@all devices dist";
 				SDKROOT = auto;
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_PNG_TEXT = NO;
@@ -668,15 +690,16 @@
 				DEPLOYMENT_POSTPROCESSING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = S4Q99652S6;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSign/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSign;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2024 Samara M";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RyukSign uses your local network to transfer IPAs and tweaks to this device over the Web Manager server.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -697,11 +720,11 @@
 					"$(PROJECT_DIR)/RyukSign/Resources/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 3.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "all dist app 2";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "@all devices dist";
 				SDKROOT = auto;
 				STRIPFLAGS = "-rSTx";
 				STRIP_PNG_TEXT = NO;
@@ -796,7 +819,7 @@
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = S4Q99652S6;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -807,8 +830,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSign/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSign;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2024 Samara M";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RyukSign uses your local network to transfer IPAs and tweaks to this device over the Web Manager server.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -829,11 +853,11 @@
 					"$(PROJECT_DIR)/RyukSign/Resources/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 3.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "all dist app 2";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "@all devices dist";
 				SDKROOT = auto;
 				STRIP_INSTALLED_PRODUCT = NO;
 				STRIP_PNG_TEXT = NO;
@@ -948,15 +972,16 @@
 				DEPLOYMENT_POSTPROCESSING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = S4Q99652S6;
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = "APPSTORE=1";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSign/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSign;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = NO;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright (c) 2024 Samara M";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "RyukSign uses your local network to transfer IPAs and tweaks to this device over the Web Manager server.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -977,11 +1002,11 @@
 					"$(PROJECT_DIR)/RyukSign/Resources/idevice",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 3.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "all dist app 2";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "@all devices dist";
 				SDKROOT = auto;
 				STRIPFLAGS = "-rSTx";
 				STRIP_PNG_TEXT = NO;
@@ -1031,10 +1056,11 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = RyukSignWidgetExtension/RyukSignWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSignWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSignWidgetExtension;
@@ -1045,11 +1071,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com.FeatherWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuk2 widget dist";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuksign widget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1071,10 +1097,11 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = RyukSignWidgetExtension/RyukSignWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSignWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSignWidgetExtension;
@@ -1085,11 +1112,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com.FeatherWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuk2 widget dist";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuksign widget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1111,10 +1138,11 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = RyukSignWidgetExtension/RyukSignWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSignWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSignWidgetExtension;
@@ -1125,11 +1153,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com.FeatherWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuk2 widget dist";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuksign widget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1152,10 +1180,11 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = RyukSignWidgetExtension/RyukSignWidgetExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 2dbf78cc8947292c963bcef71fbde7ffad2180b4;
 				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = S4Q99652S6;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 6HK6J39N3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RyukSignWidgetExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RyukSignWidgetExtension;
@@ -1166,11 +1195,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.5;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ryuk2.anoxclan.com.FeatherWidgetExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuk2 widget dist";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "ryuksign widget";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1350,6 +1379,14 @@
 				minimumVersion = 4.8.6;
 			};
 		};
+		FADE0002000000000000C001 /* XCRemoteSwiftPackageReference "swift-certificates" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-certificates.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.17.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1374,9 +1411,9 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = NimbleViews;
 		};
-		3346F5C12DC329A200C7D508 /* ZsignSwift */ = {
+		3346F5C12DC329A200C7D508 /* Zsign */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ZsignSwift;
+			productName = Zsign;
 		};
 		3346F83A2DC6C6D100C7D508 /* NukeUI */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1422,6 +1459,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FADE000100000000000F0003 /* XCLocalSwiftPackageReference "ZIPFoundation" */;
 			productName = ZIPFoundation;
+		};
+		FADE0002000000000000C002 /* X509 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FADE0002000000000000C001 /* XCRemoteSwiftPackageReference "swift-certificates" */;
+			productName = X509;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

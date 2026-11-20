@@ -43,6 +43,8 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			}
 
 			try handlePackageFile(url: destinationURL, dl: download)
+		} catch is CancellationError {
+			return
 		} catch {
 			if isAppInBackground {
 				sendCompletionNotification(for: download, status: "❌ Download failed")
@@ -169,7 +171,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
 				self.allActivityDownloads.removeValue(forKey: download.id)
 				self.finishedDownloadingIDs.remove(download.id)
 
-				if let index = self.getDownloadIndex(by: download.id) {
+				if let index = self.downloads.firstIndex(where: { $0 === download }) {
 					self.downloads.remove(at: index)
 				}
 
@@ -202,7 +204,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
 				self.allActivityDownloads.removeValue(forKey: download.id)
 				self.finishedDownloadingIDs.remove(download.id)
 
-				if let index = self.getDownloadIndex(by: download.id) {
+				if let index = self.downloads.firstIndex(where: { $0 === download }) {
 					self.downloads.remove(at: index)
 				}
 

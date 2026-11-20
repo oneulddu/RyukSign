@@ -83,7 +83,7 @@ struct LibraryAppMenu: View {
 			}
 		}
 	}
-
+	
 	@ViewBuilder
 	private var _appActions: some View {
 		if app.isSigned {

@@ -50,7 +50,7 @@ class DownloadManager: NSObject, ObservableObject {
 	var backgroundEntryTime: Date?
 
 	var backgroundTaskManager: BackgroundTaskManager?
-	private var importObservers: [String: AnyCancellable] = [:]
+	private var importObservers: [ObjectIdentifier: AnyCancellable] = [:]
 	var progressUpdateTimer: Timer?
 
 	// `Any?` so the property carries no availability requirement (ActivityKit is 16.1+, app deploys to 16.0).
@@ -180,7 +180,7 @@ class DownloadManager: NSObject, ObservableObject {
 		download.beginImport()
 
 		// Unpacking has no session callbacks to piggyback on.
-		importObservers[download.id] = download.$unpackageProgress
+		importObservers[ObjectIdentifier(download)] = download.$unpackageProgress
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] _ in
 				self?.updateLiveActivity(activeDownloads: [])
@@ -190,7 +190,7 @@ class DownloadManager: NSObject, ObservableObject {
 	}
 
 	func endImport(for download: Download) {
-		importObservers.removeValue(forKey: download.id)
+		importObservers.removeValue(forKey: ObjectIdentifier(download))
 		download.endImport()
 	}
 
@@ -550,6 +550,8 @@ class DownloadManager: NSObject, ObservableObject {
 			// Delegate callbacks must be able to find the owner before any bytes arrive.
 			if download.isActive && !download.isPaused && download.task === task {
 				task.resume()
+			} else if download.isPaused {
+				task.cancel()
 			}
 
 			self.startProgressTimer()
@@ -615,6 +617,15 @@ class DownloadManager: NSObject, ObservableObject {
 	}
 	
 	func resumeDownload(_ download: Download) {
+		guard !download.isCancelled else { return }
+		guard downloads.contains(where: { $0 === download }) else {
+			// A pending start owns a suspended task; registration will resume it.
+			if download.isPaused {
+				download.isActive = true
+				download.isPaused = false
+			}
+			return
+		}
 		if download.resumeData == nil {
 			download.resumeData = loadResumeData(for: download)
 		}
@@ -653,16 +664,21 @@ class DownloadManager: NSObject, ObservableObject {
 	}
 
 	func pauseDownload(_ download: Download) {
-		download.task?.cancel { resumeData in
-			download.resumeData = resumeData
-			self.saveResumeData(for: download)
+		guard download.isActive else { return }
+		if downloads.contains(where: { $0 === download }) {
+			download.task?.cancel { resumeData in
+				download.resumeData = resumeData
+				self.saveResumeData(for: download)
+			}
 		}
 		download.isPaused = true
 		download.isActive = false
 	}
 	
 	func cancelDownload(_ download: Download) {
+		download.isCancelled = true
 		download.task?.cancel()
+		download.isPaused = false
 		download.isActive = false
 		download.removeStagedFiles()
 
@@ -671,8 +687,9 @@ class DownloadManager: NSObject, ObservableObject {
 		try? FileManager.default.removeItem(at: resumeDataPath)
 
 		DispatchQueue.main.async {
-			if let index = self.downloads.firstIndex(where: { $0.id == download.id }) {
+			if let index = self.downloads.firstIndex(where: { $0 === download }) {
 				self.objectWillChange.send()
+				self.endImport(for: download)
 
 				// Drop from tracking so a manually stopped download leaves overall progress.
 				self.allActivityDownloads.removeValue(forKey: download.id)
@@ -731,6 +748,10 @@ class DownloadManager: NSObject, ObservableObject {
 		return downloads.first(where: { $0.id == id })
 	}
 	
+	func download(for update: AppUpdate) -> Download? {
+		update.candidates.lazy.compactMap { self.getDownload(by: $0.app.currentUniqueId) }.first
+	}
+
 	func getDownloadIndex(by id: String) -> Int? {
 		return downloads.firstIndex(where: { $0.id == id })
 	}
@@ -744,9 +765,10 @@ class DownloadManager: NSObject, ObservableObject {
 	}
 
 	func handlePackageFile(url: URL, dl: Download) throws {
-		guard !dl.isImporting else { return }
+		guard !dl.isImporting, !dl.isCancelled else { return }
 
 		DispatchQueue.main.async {
+			guard !dl.isCancelled else { return }
 			self.objectWillChange.send()
 			dl.progress = 1.0
 			// Retry point if the import dies before it finishes.
@@ -771,6 +793,7 @@ class DownloadManager: NSObject, ObservableObject {
 				DispatchQueue.main.async { self.finishImport(of: dl, succeeded: false) }
 			case .success(let app):
 				DispatchQueue.main.async {
+					dl.removeStagedFiles()
 					self.objectWillChange.send()
 					dl.unpackageProgress = 1.0
 					self.autoSignOrFinish(app, for: dl)
@@ -779,8 +802,10 @@ class DownloadManager: NSObject, ObservableObject {
 		}
 	}
 
-	private func autoSignOrFinish(_ app: AppInfoPresentable, for download: Download) {
-		guard AutoSignManager.isEnabled else {
+	@MainActor private func autoSignOrFinish(_ app: AppInfoPresentable, for download: Download) {
+		guard !download.isCancelled else { return }
+		let action = download.action ?? .current
+		guard action != .keep else {
 			if isAppInBackground { sendCompletionNotification(for: download, status: "✅ Added to Library") }
 			finishImport(of: download, succeeded: true)
 			return
@@ -790,8 +815,11 @@ class DownloadManager: NSObject, ObservableObject {
 		objectWillChange.send()
 		download.isSigning = true
 
+		let job = AutoSignManager.shared.enqueue(app, installs: action == .install) { download.isCancelled }
 		Task { @MainActor in
-			switch await AutoSignManager.shared.sign(app) {
+			let result = await job.value
+			guard !download.isCancelled else { return }
+			switch result {
 			case .success:
 				self.report(for: download, status: "✅ Signed") {
 					Toast.success(.localized("Signed successfully"), systemImage: "checkmark.seal.fill")
@@ -831,11 +859,11 @@ class DownloadManager: NSObject, ObservableObject {
 
 		// Snapshot before removing this one.
 		let isLastDownload = !downloads.contains { other in
-			other.id != download.id &&
+			other !== download &&
 			(other.isActive || other.isSigning || (other.progress > 0 && other.progress < 1.0) || (other.unpackageProgress > 0 && other.unpackageProgress < 1.0))
 		}
 
-		if let index = getDownloadIndex(by: download.id) {
+		if let index = downloads.firstIndex(where: { $0 === download }) {
 			downloads.remove(at: index)
 		}
 
@@ -854,10 +882,16 @@ class DownloadManager: NSObject, ObservableObject {
 extension DownloadManager {
 	@MainActor
 	@discardableResult
-	func startDownload(for app: ASRepository.App, version: ASRepository.App.Version? = nil) -> Download? {
+	func startDownload(
+		for app: ASRepository.App,
+		version: ASRepository.App.Version? = nil,
+		then action: AutoSignManager.Action? = nil
+	) -> Download? {
 		guard let url = version.map(\.downloadURL) ?? app.currentDownloadUrl else { return nil }
+
 		let download = startDownload(from: url, id: app.currentUniqueId, appName: app.currentName, appDescription: app.localizedDescription)
 		download.origin = AppUpdateChecker.shared.origin(for: app, version: version?.version)
+		download.action = action
 		return download
 	}
 }

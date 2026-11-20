@@ -119,7 +119,11 @@ final class SkippedUpdatesManager {
  static let shared = SkippedUpdatesManager()
  var bundleIDs: Set<String> = []
 }
-final class Download { var origin: AppOrigin? }
+enum AutoSignManager { enum Action: String, CaseIterable { case keep, sign, install } }
+final class Download {
+ var origin: AppOrigin?
+ var action: AutoSignManager.Action?
+}
 final class DownloadManager {
  static let shared = DownloadManager()
  var lastURL: URL?
@@ -179,7 +183,8 @@ CHECKS = r'''
    let immediate = DownloadManager.shared.startDownload(for: selected)
    check(immediate?.origin == AppOrigin(source: "A", appID: "source.app", name: "App A", version: "2.0"),
          "download origin is available immediately before recomputation")
-   let mirrored = DownloadManager.shared.startDownload(for: model.sources[mirror]!.apps[0], version: historical)
+   let mirrored = DownloadManager.shared.startDownload(for: model.sources[mirror]!.apps[0], version: historical, then: .install)
+   check(mirrored?.action == .install, "source download carries the selected post-import action")
    check(mirrored?.origin == AppOrigin(source: "Mirror", appID: "source.app", name: "App A", version: "0.9")
          && DownloadManager.shared.lastURL?.lastPathComponent == "archive.ipa",
          "identical listings retain exact source and requested version")
