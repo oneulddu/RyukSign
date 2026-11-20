@@ -38,8 +38,10 @@ three idle windows and 1800 seconds). After either deadline new requests get
 another 10 seconds. There is no user/account history or recovery of old links.
 
 The app sends just one profile. The server matches the uploaded identity
-against that profile, checks expiry, team/prefix and the bundle pattern, and
-passes **no entitlement override**. The pinned signer takes the profile's
+against that profile, checks expiry and team/prefix, and passes **no
+entitlement override**. The profile's App ID does not have to match the
+requested bundle ID: like on-device signing, the installed bundle ID is kept,
+because per-device reseller profiles name an unrelated explicit App ID. The pinned signer takes the profile's
 `Entitlements` dictionary as-is for the main and nested executables; it does
 not specialize wildcard application identifiers or keychain groups. Zsign
 embeds the profile in the main app and replaces the original bundle ID in the
@@ -51,9 +53,9 @@ app's local install manifest, not the Git build SHA or release tag. nginx
 proxies the manifest with its `text/xml` media type.
 
 A wildcard covering the requested main ID also covers its suffixed widget
-ID: Zsign keeps and recursively signs the widget with the same identity. An
-explicit main App ID cannot cover the widget; **only then** does the server
-use `-E` and omit extensions. No separate widget profile is synthesized.
+ID: Zsign keeps and recursively signs the widget with the same identity. Any
+other App ID cannot cover the widget; **only then** does the server use `-E`
+and omit extensions. No separate widget profile is synthesized.
 This comparison is to on-device signing with an empty entitlements path
 and **Remove Provisioning disabled**. `installViaIDevice` uses the phone's
 saved options, not a fixed preset (`Options.defaultOptions.removeProvisioning`

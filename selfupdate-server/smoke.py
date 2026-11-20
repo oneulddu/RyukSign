@@ -43,7 +43,8 @@ def fixture(version, *, wildcard):
                   data=password + b"\n")
     der = openssl("x509", "-in", "leaf.pem", "-outform", "DER")
     team = "SYNTH12345"
-    entitlements = {"application-identifier": team + "." + ("com.example.*" if wildcard else BUNDLE),
+    # The explicit profile names another App ID, like per-device reseller profiles.
+    entitlements = {"application-identifier": team + "." + ("com.example.*" if wildcard else "app.example.unrelated"),
                     "com.apple.developer.team-identifier": team,
                     "keychain-access-groups": [team + ".*"]}
     profile = plistlib.dumps({"Name": "Synthetic only", "UUID": str(uuid.uuid4()),
