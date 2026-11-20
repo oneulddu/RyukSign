@@ -33,7 +33,7 @@ struct ResumeDownloadsIntent: LiveActivityIntent {
 /// Joins app names, truncating with an ellipsis past maxLength.
 private func formatAppNames(_ names: [String], maxLength: Int = 40) -> String {
 	if names.isEmpty {
-		return "Downloads"
+		return String(localized: "Downloads")
 	}
 
 	if names.count == 1 {
@@ -80,12 +80,12 @@ private extension DownloadPhase {
 
 	var label: String {
 		switch self {
-		case .queued: return "Queued"
-		case .downloading: return "Downloading"
-		case .paused: return "Paused"
-		case .importing: return "Importing"
-		case .signing: return "Signing"
-		case .completed: return "Done"
+		case .queued: return String(localized: "Queued")
+		case .downloading: return String(localized: "Downloading")
+		case .paused: return String(localized: "Paused")
+		case .importing: return String(localized: "Importing")
+		case .signing: return String(localized: "Signing")
+		case .completed: return String(localized: "Done")
 		}
 	}
 }
