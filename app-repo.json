@@ -17,18 +17,18 @@
       "iconURL": "https://raw.githubusercontent.com/oneulddu/RyukSign/refs/heads/main/repo-icon.png",
       "tintColor": "C96FAD",
       "category": "utilities",
-      "version": "4.1.0",
-      "versionDate": "2026-11-20T13:50:11Z",
+      "version": "4.1.0-r1",
+      "versionDate": "2026-11-20T14:32:38Z",
       "versionDescription": "See the GitHub release notes.",
-      "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0/RyukSign.ipa",
-      "size": 20166276,
+      "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0-r1/RyukSign.ipa",
+      "size": 20166128,
       "screenshotURLs": [],
       "versions": [
         {
-          "version": "4.1.0",
-          "date": "2026-11-20T13:50:11Z",
-          "size": 20166276,
-          "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0/RyukSign.ipa"
+          "version": "4.1.0-r1",
+          "date": "2026-11-20T14:32:38Z",
+          "size": 20166128,
+          "downloadURL": "https://github.com/oneulddu/RyukSign/releases/download/v4.1.0-r1/RyukSign.ipa"
         }
       ],
       "appPermissions": {
